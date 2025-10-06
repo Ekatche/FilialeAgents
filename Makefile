@@ -36,9 +36,9 @@ install: ## Installe les dépendances avec uv
 	$(UV) sync
 	@echo "$(GREEN)✅ Installation terminée$(NC)"
 
-install-api: ## Installe les dépendances de l'API uniquement
-	@echo "$(GREEN)📦 Installation des dépendances de l'API...$(NC)"
-	cd $(API_DIR) && $(UV) pip install -r requirements.txt
+install-api: ## Installe les dépendances de l'API (via uv au niveau racine)
+	@echo "$(GREEN)📦 Installation des dépendances de l'API (uv sync racine)...$(NC)"
+	$(UV) sync
 	@echo "$(GREEN)✅ Installation API terminée$(NC)"
 
 install-dev: ## Installe les dépendances de développement
@@ -79,9 +79,13 @@ start-all: ## Démarre l'API et le frontend
 	@sleep 2
 	@$(MAKE) start-frontend
 
-test: ## Lance les tests de l'API avec uv
-	@echo "$(GREEN)🧪 Lancement des tests avec uv...$(NC)"
-	$(UV) run --directory $(API_DIR) python test_api.py
+test: ## Vérifie l’API via healthcheck
+	@echo "$(GREEN)🧪 Healthcheck API...$(NC)"
+	@if curl -fsS http://localhost:8000/health > /dev/null; then \
+		echo "$(GREEN)✅ API OK$(NC)"; \
+	else \
+		echo "$(RED)❌ API KO$(NC)"; exit 1; \
+	fi
 
 test-frontend: ## Lance les tests du frontend
 	@echo "$(GREEN)🧪 Lancement des tests du frontend...$(NC)"

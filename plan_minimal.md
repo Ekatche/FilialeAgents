@@ -1,64 +1,78 @@
-# Plan de refactorisation multi-agents
+# Plan minimal — Orchestration multi‑agents (état actuel)
 
-## 1. Cartographie & instrumentation
+## 1) Orchestration (extraction_manager.py)
 
-- Tracer les entrées/sorties de chaque fonction orchestratrice (`run_analyze_and_info`, `run_extract_subsidiaries_details`, etc.).
-- Ajouter des logs DEBUG avant/après chaque appel d’agent pour suivre statut, temps, taille JSON.
+- Séquence déterministe: Analyse → Info → Filiales → (Validation si nécessaire) → Restructuration.
+- Résolution de la cible: si `company_analyzer.relationship == "subsidiary"` et `parent_company` renseigné → cible = parent, sinon = entité résolue ou input.
+- Retries/timeouts par agent centralisés via `_run_agent_with_retry`.
+- Parsing JSON robuste: déballage `content`, extraction bloc `{...}`/`[...]`, réparation des troncatures.
+- Feature flag de filtres post‑extraction: `ENABLE_SUBS_FILTERS` (par défaut False pour évaluer le prompt seul).
 
-## 2. Réarchitecture de l’orchestrateur
+## 2) Agents (rôle, outils, modèles, sortie)
 
-- Réintroduire un plan minimal : Analyse → Info de base → Filiales → Validation.
-- Remplacer l’interdiction des appels multiples par un contrôle programmatique.
-- Déplacer la logique de sélection de cible côté orchestrateur (plus de `choose_target_entity` exposé).
-- Supporter une boucle limitée (max 4 tours) avec état partagé.
+- 🔍 Éclaireur (`company_analyzer`)
 
-## 3. Critères d’activation des agents
+  - Rôle: statut corporate (parent/subsidiary/independent), parent éventuel.
+  - Outils: WebSearchTool — 2+ requêtes obligatoires.
+  - Modèle: gpt-4.1-mini.
+  - Sortie: `CompanyLinkage` (schéma strict).
 
-- `company_analyzer` toujours appelé en premier ; relance/fallback si `relationship="unknown"` ou sources vides.
-- `information_extractor` déclenché si adresse/secteur manquants ou signaux de qualité insuffisants.
-- `subsidiary_extractor` appelé pour la société cible, avec relance ciblée si <3 filiales trouvées.
-- `meta_validator` activé en cas d’incohérences (parent divergent, sources absentes, filiales non sourcées).
+- ⛏️ Mineur (`information_extractor`)
 
-## 4. Ajustement des prompts
+  - Rôle: fiche entreprise (siège, secteur, activités, sources ≥2 dont ≥1 rang 1/2).
+  - Outils: WebSearchTool.
+  - Modèle: gpt-4.1-mini.
+  - Sortie: `CompanyCard` (schéma strict).
 
-- `company_analyzer` : conserver la structure actuelle, ajouter fallback orienté registres locaux.
-- `information_extractor` : simplifier, limiter le JSON, retirer les filiales.
-- `subsidiary_extractor` : cibler TOP 10 filiales, réduire complexité JSON.
-- `meta_validator` : prompt concis pour vérification croisée et recommandations.
+- 🗺️ Cartographe (`subsidiary_extractor`)
 
-## 5. Gestion outils & modèles
+  - Rôle: TOP 10 filiales (sources officielles), coordonnées, sites; si 0 filiale → fallback “présences géographiques” (`branch`/`division`).
+  - Outils: aucun (recherche intégrée Sonar Perplexity via API compatible OpenAI).
+  - Modèle: sonar-pro (temperature=0.0, max_tokens=3200).
+  - Sortie: `SubsidiaryReport` (schéma strict).
 
-- Maintenir un mapping clair Agent ↔ Outils.
-- Définir le modèle par agent (fallback gpt-5-mini optionnel).
-- Limiter les requêtes Web par agent ; journaliser les dépassements.
+- ⚖️ Superviseur (`meta_validator`)
 
-## 6. Tracking temps réel
+  - Rôle: cohérence globale, conflicts, scores (géographie/structure/sources/overall), recommandations, warnings.
+  - Outils: aucun.
+  - Modèle: gpt-4o-mini.
+  - Sortie: `MetaValidationReport` (schéma strict).
 
-- Étendre `agent_tracking_service` à 4 étapes (Analyse, Info, Filiales, Validation).
-- Remonter les warnings (parent absent, sources 404) au frontend.
-- Journaliser temps d’exécution et nombre de requêtes Web par agent.
+- 🔄 Restructurateur (`data_restructurer`)
+  - Rôle: normaliser en `CompanyInfo`, respecter limites (sources, GPS, champs interdits).
+  - Outils: aucun.
+  - Modèle: gpt-4.1-mini.
+  - Sortie: `CompanyInfo` (schéma strict).
 
-## 7. API & infrastructure
+## 3) Garde‑fous de prompt (format & fiabilité)
 
-- FastAPI : middleware pour formater les erreurs agents.
-- Redis : stocker statut/logs par session pour reprise.
-- Timeout spécifique par agent configurable via env.
+- Réponses JSON strictes: un seul objet, une seule ligne, pas de markdown ni wrapper (`{"content": ...}`).
+- FINALIZER: auto‑contrôle avant envoi (pas de virgules finales, échappement OK, clés du schéma uniquement).
+- `subsidiary_extractor`: fallback “présences géographiques” si 0 filiale avec source officielle.
+- Règle de fraîcheur (prompt): prioriser <24 mois; `published_date` si disponible, sinon pages officielles (About/Contact/IR) du domaine légitime + mention de vérification dans `methodology_notes`.
 
-## 8. Validation & tests
+## 4) Filtres post‑extraction (orchestrateur)
 
-- Scénarios : société mère (Apple), filiale (Axxair), PME indépendante, cas ambigu.
-- Vérifier : sources valides, nombre de filiales, cohérence parent/enfant, JSON final.
+- Accessibilité d’URLs: HEAD/GET avec tolérance 403 sur domaines légitimes; suppression des sources cassées.
+- Fraîcheur (optionnelle): `_filter_fresh_sources(..., max_age_months=24)` retire les filiales n’ayant aucune source officielle ≤24 mois; sans dates, conserve si au moins une URL officielle https valide.
+- Activation: via `ENABLE_SUBS_FILTERS=True`.
 
-## 9. Documentation
+## 5) Tracking temps réel & warnings
 
-- Mettre à jour README et docs internes.
-- Lister variables/env nécessaires.
-- Rédiger guide d’exploitation (relance, interprétation warnings).
+- `agent_tracking_service`: étapes, durées, progression; warnings surfacés au frontend.
+- Journalisation: temps d’exécution, tailles JSON, URLs exclues.
 
-## 10. Déploiement progressif
+## 6) Exécution & dépendances
 
-1. Implémentation en local.
-2. Tests unitaires/intégration.
-3. Mise à jour du frontend.
-4. Déploiement staging + logs détaillés.
-5. Validation finale avant prod.
+- Backend: FastAPI (`api/`), démarrage via `make start` (uv). Frontend: `make start-frontend`.
+- Dépendances: `pyproject.toml` + `uv.lock` (pas de `requirements.txt`).
+
+## 7) Tests & validations
+
+- Healthcheck: `make test` (vérifie `/health`).
+- Validation manuelle: POST `/extract` et `/extract-from-url` (Swagger `/docs`).
+
+## 8) Documentation
+
+- README racine mis à jour (structure, endpoints, notes flag).
+- Ce plan reflète l’état actuel et remplace l’ancien plan “refactorisation”.
