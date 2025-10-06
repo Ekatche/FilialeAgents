@@ -1,0 +1,151 @@
+# Makefile pour Company Analyzer Docker
+# Usage: make -f Makefile.docker <target>
+
+.PHONY: help build up down logs status clean restart dev prod
+
+# Variables
+COMPOSE_FILE = docker-compose.full-stack.yml
+PROJECT_NAME = company-analyzer
+
+# Couleurs pour l'affichage
+GREEN = \033[0;32m
+YELLOW = \033[1;33m
+RED = \033[0;31m
+NC = \033[0m # No Color
+
+help: ## Afficher l'aide
+	@echo "$(GREEN)🐳 Company Analyzer - Commandes Docker$(NC)"
+	@echo "================================================"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(YELLOW)%-20s$(NC) %s\n", $$1, $$2}'
+
+build: ## Construire toutes les images
+	@echo "$(GREEN)🔨 Construction des images Docker...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) build
+
+build-no-cache: ## Construire les images sans cache
+	@echo "$(GREEN)🔨 Construction des images sans cache...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) build --no-cache
+
+up: ## Démarrer tous les services en arrière-plan
+	@echo "$(GREEN)🚀 Démarrage de tous les services...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) up -d
+	@echo "$(GREEN)✅ Services démarrés!$(NC)"
+	@echo "📍 URLs disponibles:"
+	@echo "   • Application: http://localhost"
+	@echo "   • Frontend:    http://localhost:3000"
+	@echo "   • API:         http://localhost:8000"
+	@echo "   • Docs API:    http://localhost/docs"
+
+up-build: ## Construire et démarrer tous les services
+	@echo "$(GREEN)🔨 Construction et démarrage...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) up --build -d
+
+dev: ## Démarrer en mode développement (avec logs)
+	@echo "$(GREEN)🛠️  Mode développement...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) up --build api frontend
+
+api-only: ## Démarrer seulement l'API
+	@echo "$(GREEN)🔧 Démarrage API seulement...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) up -d api
+
+frontend-only: ## Démarrer seulement le frontend
+	@echo "$(GREEN)🎨 Démarrage Frontend seulement...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) up -d frontend
+
+down: ## Arrêter tous les services
+	@echo "$(YELLOW)⏹️  Arrêt des services...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) down
+
+down-volumes: ## Arrêter et supprimer les volumes
+	@echo "$(RED)🗑️  Arrêt et suppression des volumes...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) down -v
+
+restart: ## Redémarrer tous les services
+	@echo "$(YELLOW)🔄 Redémarrage des services...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) restart
+
+logs: ## Afficher les logs de tous les services
+	docker-compose -f $(COMPOSE_FILE) logs -f
+
+logs-api: ## Afficher les logs de l'API
+	docker-compose -f $(COMPOSE_FILE) logs -f api
+
+logs-frontend: ## Afficher les logs du frontend
+	docker-compose -f $(COMPOSE_FILE) logs -f frontend
+
+logs-nginx: ## Afficher les logs de Nginx
+	docker-compose -f $(COMPOSE_FILE) logs -f nginx
+
+status: ## Afficher le statut des services
+	@echo "$(GREEN)📊 Statut des services:$(NC)"
+	docker-compose -f $(COMPOSE_FILE) ps
+
+health: ## Vérifier la santé des services
+	@echo "$(GREEN)🏥 Vérification de la santé des services:$(NC)"
+	@echo "API Health:"
+	@curl -f http://localhost:8000/health 2>/dev/null && echo " ✅ API OK" || echo " ❌ API KO"
+	@echo "Frontend Health:"
+	@curl -f http://localhost:3000 2>/dev/null > /dev/null && echo " ✅ Frontend OK" || echo " ❌ Frontend KO"
+	@echo "Nginx Health:"
+	@curl -f http://localhost/health 2>/dev/null && echo " ✅ Nginx OK" || echo " ❌ Nginx KO"
+
+shell-api: ## Ouvrir un shell dans le conteneur API
+	docker-compose -f $(COMPOSE_FILE) exec api bash
+
+shell-frontend: ## Ouvrir un shell dans le conteneur Frontend
+	docker-compose -f $(COMPOSE_FILE) exec frontend sh
+
+shell-nginx: ## Ouvrir un shell dans le conteneur Nginx
+	docker-compose -f $(COMPOSE_FILE) exec nginx sh
+
+clean: ## Nettoyer les images et conteneurs inutilisés
+	@echo "$(YELLOW)🧹 Nettoyage des ressources Docker...$(NC)"
+	docker system prune -f
+	docker volume prune -f
+
+clean-all: ## Nettoyage complet (ATTENTION: supprime tout)
+	@echo "$(RED)🗑️  Nettoyage complet...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) down -v --rmi all
+	docker system prune -a -f
+
+stats: ## Afficher les statistiques des conteneurs
+	@echo "$(GREEN)📈 Statistiques des conteneurs:$(NC)"
+	docker stats --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"
+
+images: ## Afficher les images du projet
+	@echo "$(GREEN)🖼️  Images du projet:$(NC)"
+	docker images | grep -E "(company-analyzer|REPOSITORY)"
+
+setup: ## Configuration initiale du projet
+	@echo "$(GREEN)⚙️  Configuration initiale...$(NC)"
+	@if [ ! -f .env ]; then \
+		cp env.docker.example .env; \
+		echo "$(YELLOW)📝 Fichier .env créé. Veuillez le configurer avec vos variables.$(NC)"; \
+	else \
+		echo "$(GREEN)✅ Fichier .env existe déjà.$(NC)"; \
+	fi
+	@echo "$(GREEN)🔧 Prêt à démarrer! Utilisez: make up$(NC)"
+
+test: ## Tester les services après démarrage
+	@echo "$(GREEN)🧪 Test des services...$(NC)"
+	@sleep 5
+	@echo "Test API:"
+	@curl -s http://localhost:8000/health | jq . || echo "❌ API non accessible"
+	@echo "Test Frontend:"
+	@curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend accessible" || echo "❌ Frontend non accessible"
+
+backup: ## Sauvegarder les volumes de données
+	@echo "$(GREEN)💾 Sauvegarde des données...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) exec api tar czf /tmp/backup.tar.gz /app/logs /app/cache 2>/dev/null || true
+	docker cp $$(docker-compose -f $(COMPOSE_FILE) ps -q api):/tmp/backup.tar.gz ./backup-$$(date +%Y%m%d-%H%M%S).tar.gz
+	@echo "$(GREEN)✅ Sauvegarde créée: backup-$$(date +%Y%m%d-%H%M%S).tar.gz$(NC)"
+
+monitor: ## Surveiller les logs en temps réel
+	@echo "$(GREEN)👀 Surveillance des logs (Ctrl+C pour arrêter)...$(NC)"
+	docker-compose -f $(COMPOSE_FILE) logs -f --tail=50
+
+prod: setup up ## Configuration et démarrage en mode production
+	@echo "$(GREEN)🚀 Mode production activé!$(NC)"
+
+# Targets par défaut
+.DEFAULT_GOAL := help
