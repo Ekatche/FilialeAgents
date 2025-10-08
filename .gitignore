@@ -113,9 +113,10 @@ enterprise_extraction.log
 
 # Fichiers d'export
 *.csv
-*.json
 subsidiaries_*.csv
 company_*.json
+extraction_*.json
+results_*.json
 
 # Clés API (sécurité)
 .env

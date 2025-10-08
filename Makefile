@@ -46,10 +46,13 @@ install-dev: ## Installe les dépendances de développement
 	$(UV) sync --dev
 	@echo "$(GREEN)✅ Installation dev terminée$(NC)"
 
-install-frontend: ## Installe les dépendances du frontend
+install-frontend: ## Installe les dépendances du frontend (si package.json présent)
 	@echo "$(GREEN)📦 Installation des dépendances du frontend...$(NC)"
-	cd $(FRONTEND_DIR) && $(NPM) install
-	@echo "$(GREEN)✅ Installation frontend terminée$(NC)"
+	@if [ -f "$(FRONTEND_DIR)/package.json" ]; then \
+		cd $(FRONTEND_DIR) && $(NPM) install && echo "$(GREEN)✅ Installation frontend terminée$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️ Aucun package.json dans $(FRONTEND_DIR) — étape ignorée$(NC)"; \
+	fi
 
 install-all: install install-frontend ## Installe toutes les dépendances (API + Frontend)
 	@echo "$(GREEN)✅ Toutes les dépendances installées$(NC)"
@@ -157,7 +160,7 @@ logs: ## Affiche les logs de l'API
 		echo "$(YELLOW)⚠️ Aucun fichier de log trouvé$(NC)"; \
 	fi
 
-setup: install ## Configuration complète du projet avec uv
+setup: install install-frontend ## Configuration complète du projet (uv backend + npm frontend)
 	@echo "$(GREEN)🔧 Configuration du projet avec uv...$(NC)"
 	@if [ -z "$$OPENAI_API_KEY" ]; then \
 		echo "$(YELLOW)⚠️ OPENAI_API_KEY non définie$(NC)"; \
