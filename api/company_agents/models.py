@@ -119,6 +119,7 @@ class Subsidiary(BaseModel):
         default="subsidiary"
     )
     activity: Optional[str] = Field(default=None, max_length=300)
+    
     headquarters: LocationInfo = Field(...)
     sites: Optional[List[LocationInfo]] = Field(default=None, max_length=7)
     phone: Optional[str] = Field(default=None, max_length=50)
@@ -142,6 +143,13 @@ class SubsidiaryReport(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     company_name: str = Field(..., min_length=1, max_length=200)
+
+    parent_website: Optional[str] = Field(
+        default=None, 
+        max_length=500,
+        description="Site web principal du groupe, utilisé en fallback"
+    )
+    
     parents: List[ParentRef] = Field(default_factory=list, max_length=3)
     subsidiaries: List[Subsidiary] = Field(default_factory=list, max_length=10)
     methodology_notes: Optional[List[str]] = Field(default=None, max_length=5)
