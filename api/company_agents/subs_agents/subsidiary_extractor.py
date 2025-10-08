@@ -1,8 +1,10 @@
-# flake8: noqa
-
 """
-🗺️ Cartographe - Agent d'extraction des filiales d'entreprises
-Version nettoyée et optimisée pour extraire les 10 plus grandes filiales
+🗺️ Agent Subsidiary Extractor - Extraction des filiales d'entreprises.
+
+Cet agent extrait les filiales d'une entreprise en se concentrant sur :
+- Les 10 plus grandes filiales par importance
+- Les sources officielles récentes (≤24 mois)
+- Le fallback vers les "présences géographiques" si aucune filiale fiable
 """
 
 import os

@@ -1,3 +1,20 @@
+"""
+Orchestrateur multi-agents pour l'extraction d'informations d'entreprise.
+
+Ce module coordonne l'exécution séquentielle des agents spécialisés :
+1. 🔍 Company Analyzer : Identification de l'entité légale
+2. ⛏️ Information Extractor : Consolidation des informations clés  
+3. 🗺️ Subsidiary Extractor : Extraction des filiales
+4. ⚖️ Meta Validator : Validation de cohérence
+5. 🔄 Data Restructurer : Normalisation finale
+
+Fonctionnalités :
+- Gestion des sessions et tracking en temps réel
+- Validation et filtrage des sources
+- Gestion des erreurs et retry automatique
+- Cache d'accessibilité des URLs
+"""
+
 # flake8: noqa
 from __future__ import annotations
 from agents import Runner
@@ -20,17 +37,16 @@ from .subs_agents import (
 )
 from .subs_agents.data_validator import data_restructurer
 
-# enrich_subsidiaries_gps supprimé - Les modèles GPT peuvent fournir les coordonnées directement
 from status import status_manager
 from services.agent_tracking_service import agent_tracking_service
 import time
 
-# Logger pour les erreurs JSON
 logger = logging.getLogger(__name__)
 
-_URL_STATUS_CACHE: Dict[str, bool] = {}
-_URL_TIMEOUT_S = 5.0
-_URL_ALLOWED_STATUSES = {403}
+# Configuration pour la validation des URLs
+_URL_STATUS_CACHE: Dict[str, bool] = {}  # Cache d'accessibilité des URLs
+_URL_TIMEOUT_S = 5.0  # Timeout pour les requêtes HTTP
+_URL_ALLOWED_STATUSES = {403}  # Codes de statut acceptés (403 = accès restreint mais valide)
 _URL_REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -391,18 +407,33 @@ def _append_warning(state: "ExtractionState", message: str) -> None:
 
 @dataclass(slots=True)
 class ExtractionState:
+    """
+    État partagé entre les agents lors de l'extraction.
+    
+    Stocke les résultats intermédiaires de chaque agent et permet
+    le passage de données entre les étapes du pipeline d'extraction.
+    """
     session_id: str
     raw_input: str
     include_subsidiaries: bool = True
+    
+    # Résultats de l'agent Company Analyzer
     analyzer: Optional[Dict[str, Any]] = None
     analyzer_raw: Optional[str] = None
     target_entity: Optional[str] = None
+    
+    # Résultats de l'agent Information Extractor
     info_card: Optional[Dict[str, Any]] = None
     info_raw: Optional[str] = None
+    
+    # Résultats de l'agent Subsidiary Extractor
     subs_report: Optional[Dict[str, Any]] = None
     subs_raw: Optional[str] = None
+    
+    # Résultats de l'agent Meta Validator
     meta_report: Optional[Dict[str, Any]] = None
     meta_raw: Optional[str] = None
+    
     warnings: List[str] = field(default_factory=list)
 
     def log(self, step: str, payload: Any) -> None:
@@ -415,7 +446,16 @@ async def orchestrate_extraction(
     session_id: str,
     include_subsidiaries: bool = True,
 ) -> Dict[str, Any]:
-    """Nouvelle orchestration Python (remplace le prompt multi-étapes)."""
+    """
+    Orchestrateur principal du pipeline d'extraction multi-agents.
+    
+    Séquence d'exécution :
+    1. 🔍 Company Analyzer : Identification de l'entité légale
+    2. ⛏️ Information Extractor : Consolidation des informations clés
+    3. 🗺️ Subsidiary Extractor : Extraction des filiales (si demandé)
+    4. ⚖️ Meta Validator : Validation de cohérence (si nécessaire)
+    5. 🔄 Data Restructurer : Normalisation finale
+    """
 
     state = ExtractionState(
         session_id=session_id,
@@ -423,14 +463,18 @@ async def orchestrate_extraction(
         include_subsidiaries=include_subsidiaries,
     )
 
+    # Étape 1: Identification de l'entité légale
     analyzer_data = await _call_company_analyzer(state)
     state.target_entity = _resolve_target_entity(raw_input, analyzer_data)
 
+    # Étape 2: Consolidation des informations clés
     info_data = await _call_information_extractor(state)
 
+    # Étape 3: Extraction des filiales (conditionnelle)
     if state.include_subsidiaries:
         await _call_subsidiary_extractor(state)
 
+    # Étape 4: Validation de cohérence (conditionnelle)
     if _should_run_meta_validation(state):
         await _call_meta_validator(state)
 

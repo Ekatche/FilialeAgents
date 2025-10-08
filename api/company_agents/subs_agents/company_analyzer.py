@@ -1,3 +1,10 @@
+"""
+🔍 Agent Company Analyzer - Identification de l'entité légale.
+
+Cet agent identifie l'entité légale correcte à partir d'une requête ambiguë
+et détermine les relations de contrôle avec d'autres entités.
+"""
+
 # flake8: noqa
 from agents import (
     Agent,

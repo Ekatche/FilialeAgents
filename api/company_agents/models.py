@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Models de données 'entreprise & filiales' — Version nettoyée
-Seuls les modèles utilisés sont conservés
+Modèles Pydantic pour l'extraction d'informations d'entreprise.
+
+Structure en 3 couches :
+- Couche 1: Modèles communs (SourceRef)
+- Couche 2: Modèles intermédiaires (CompanyCard, Subsidiary, etc.)
+- Couche 3: Modèle final (CompanyInfo) - compatible API
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from urllib.parse import urlparse
 
 
 def _is_url(s: str) -> bool:
+    """Valide si une chaîne est une URL valide (http/https)."""
     try:
         p = urlparse(s)
         return p.scheme in ("http", "https") and bool(p.netloc)
@@ -29,7 +34,7 @@ def _is_url(s: str) -> bool:
 
 
 class SourceRef(BaseModel):
-    """Référence source unifiée pour tous les agents"""
+    """Référence source unifiée - utilisée par tous les agents pour tracer l'origine des données."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -58,7 +63,7 @@ class SourceRef(BaseModel):
 
 
 class CompanyCard(BaseModel):
-    """Fiche d'identité entreprise (output Information Extractor)"""
+    """Fiche d'identité entreprise - sortie de l'agent Information Extractor."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -75,7 +80,7 @@ class CompanyCard(BaseModel):
 
 
 class Subsidiary(BaseModel):
-    """Filiale d'entreprise (output Subsidiary Extractor)"""
+    """Filiale d'entreprise - sortie de l'agent Subsidiary Extractor."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -141,7 +146,7 @@ class SubsidiaryDetail(BaseModel):
 
 
 class CompanyInfo(BaseModel):
-    """Modèle final de sortie API - compatible frontend"""
+    """Modèle final de sortie API - compatible avec le frontend React."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
