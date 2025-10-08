@@ -1,27 +1,25 @@
 """
-Package company_agents - Orchestration multi-agents pour l'extraction d'informations d'entreprise.
-
-Architecture :
-- models.py : Modèles Pydantic pour la validation des données
-- extraction_core.py : Point d'entrée principal de l'API
-- extraction_manager.py : Orchestrateur des agents spécialisés
-- subs_agents/ : Agents spécialisés (analyzer, extractor, validator)
+Package agents - Modules pour l'extraction d'informations d'entreprise
 """
 
-# Modèles Pydantic pour la validation des données
 from .models import (
-    CompanyInfo,        # Modèle final de sortie API
-    SubsidiaryReport,   # Rapport des filiales
-    CompanyCard,        # Fiche d'identité entreprise
-    Subsidiary,         # Modèle filiale
-    SubsidiaryDetail,   # Détails d'une filiale
-    ExtractionMetadata, # Métadonnées d'extraction
-    SourceRef,          # Référence source unifiée
+    CompanyInfo,
+    SubsidiaryReport,
+    CompanyCard,
+    Subsidiary,
+    SubsidiaryDetail,
+    ExtractionMetadata,
+    SourceRef,
+    LocationInfo,
 )
 
-# Point d'entrée principal de l'API
 from .extraction_core import extract_company_data
 
+# Extraction core - import différé pour éviter les problèmes de dépendances
+# from .extraction_core import (
+#     extract_company_data_from_url,
+#     extract_company_data_unified,
+# )
 
 __all__ = [
     # Models
@@ -32,6 +30,10 @@ __all__ = [
     "SubsidiaryDetail",
     "ExtractionMetadata",
     "SourceRef",
+    "LocationInfo",
     # Core Extraction
     "extract_company_data",
+    # Core Extraction - import différé
+    # "extract_company_data_from_url",
+    # "extract_company_data_unified",
 ]

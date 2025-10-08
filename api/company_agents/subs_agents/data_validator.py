@@ -236,15 +236,18 @@ Retourner directement un objet CompanyInfo (pas de wrapper) avec tous les champs
 """
 
 
-# Schéma de sortie pour CompanyInfo
-company_info_schema = AgentOutputSchema(CompanyInfo, strict_json_schema=True)
+# Schéma de sortie pour CompanyInfo (initialisation différée)
+def get_company_info_schema():
+    """Retourne le schéma de sortie pour CompanyInfo."""
+    return AgentOutputSchema(CompanyInfo, strict_json_schema=True)
+
 
 # Agent de restructuration des données
 data_restructurer = Agent(
     name="🔄 Restructurateur",
     instructions=DATA_RESTRUCTURER_PROMPT,
     tools=[],  # Les modèles GPT peuvent évaluer et restructurer sans outils externes
-    output_type=company_info_schema,  # Sortie directe en CompanyInfo
+    output_type=get_company_info_schema(),  # Sortie directe en CompanyInfo
     model="gpt-4.1-mini",  # 95% moins cher, optimisé pour restructuration
 )
 

@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Modèles Pydantic pour l'extraction d'informations d'entreprise.
-
-Structure en 3 couches :
-- Couche 1: Modèles communs (SourceRef)
-- Couche 2: Modèles intermédiaires (CompanyCard, Subsidiary, etc.)
-- Couche 3: Modèle final (CompanyInfo) - compatible API
+Models de données 'entreprise & filiales' — Version nettoyée
+Seuls les modèles utilisés sont conservés
 """
 
 from __future__ import annotations
-from typing import List, Optional, Literal, Dict, Any
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from urllib.parse import urlparse
 
@@ -20,7 +16,6 @@ from urllib.parse import urlparse
 
 
 def _is_url(s: str) -> bool:
-    """Valide si une chaîne est une URL valide (http/https)."""
     try:
         p = urlparse(s)
         return p.scheme in ("http", "https") and bool(p.netloc)
@@ -34,7 +29,7 @@ def _is_url(s: str) -> bool:
 
 
 class SourceRef(BaseModel):
-    """Référence source unifiée - utilisée par tous les agents pour tracer l'origine des données."""
+    """Référence source unifiée pour tous les agents"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -57,13 +52,48 @@ class SourceRef(BaseModel):
         return v
 
 
+class LocationInfo(BaseModel):
+    """Information de localisation unifiée"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    label: Optional[str] = Field(default=None, max_length=200)
+    line1: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    country: Optional[str] = Field(default=None, max_length=100)
+    postal_code: Optional[str] = Field(default=None, max_length=20)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=100)
+    website: Optional[str] = Field(default=None, max_length=500)
+    sources: Optional[List[SourceRef]] = Field(default=None, max_length=3)
+
+    @field_validator("website")
+    @classmethod
+    def validate_website(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _is_url(v):
+            raise ValueError("Website URL invalide")
+        return v
+
+
+class ParentRef(BaseModel):
+    """Référence vers une société mère"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    legal_name: str = Field(..., min_length=1, max_length=200)
+    country: Optional[str] = Field(default=None, max_length=100)
+    sources: List[SourceRef] = Field(min_length=1, max_length=7)
+
+
 # ====================================================================
 # COUCHE 2 : Modèles intermédiaires
 # ====================================================================
 
 
 class CompanyCard(BaseModel):
-    """Fiche d'identité entreprise - sortie de l'agent Information Extractor."""
+    """Fiche d'identité entreprise (output Information Extractor)"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -80,7 +110,7 @@ class CompanyCard(BaseModel):
 
 
 class Subsidiary(BaseModel):
-    """Filiale d'entreprise - sortie de l'agent Subsidiary Extractor."""
+    """Filiale d'entreprise (output Subsidiary Extractor)"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -146,7 +176,7 @@ class SubsidiaryDetail(BaseModel):
 
 
 class CompanyInfo(BaseModel):
-    """Modèle final de sortie API - compatible avec le frontend React."""
+    """Modèle final de sortie API - compatible frontend"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
