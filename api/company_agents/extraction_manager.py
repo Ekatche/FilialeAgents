@@ -3,7 +3,7 @@ Orchestrateur multi-agents pour l'extraction d'informations d'entreprise.
 
 Ce module coordonne l'exécution séquentielle des agents spécialisés :
 1. 🔍 Company Analyzer : Identification de l'entité légale
-2. ⛏️ Information Extractor : Consolidation des informations clés  
+2. ⛏️ Information Extractor : Consolidation des informations clés
 3. 🗺️ Subsidiary Extractor : Extraction des filiales
 4. ⚖️ Meta Validator : Validation de cohérence
 5. 🔄 Data Restructurer : Normalisation finale
@@ -46,7 +46,9 @@ logger = logging.getLogger(__name__)
 # Configuration pour la validation des URLs
 _URL_STATUS_CACHE: Dict[str, bool] = {}  # Cache d'accessibilité des URLs
 _URL_TIMEOUT_S = 5.0  # Timeout pour les requêtes HTTP
-_URL_ALLOWED_STATUSES = {403}  # Codes de statut acceptés (403 = accès restreint mais valide)
+_URL_ALLOWED_STATUSES = {
+    403
+}  # Codes de statut acceptés (403 = accès restreint mais valide)
 _URL_REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -409,31 +411,32 @@ def _append_warning(state: "ExtractionState", message: str) -> None:
 class ExtractionState:
     """
     État partagé entre les agents lors de l'extraction.
-    
+
     Stocke les résultats intermédiaires de chaque agent et permet
     le passage de données entre les étapes du pipeline d'extraction.
     """
+
     session_id: str
     raw_input: str
     include_subsidiaries: bool = True
-    
+
     # Résultats de l'agent Company Analyzer
     analyzer: Optional[Dict[str, Any]] = None
     analyzer_raw: Optional[str] = None
     target_entity: Optional[str] = None
-    
+
     # Résultats de l'agent Information Extractor
     info_card: Optional[Dict[str, Any]] = None
     info_raw: Optional[str] = None
-    
+
     # Résultats de l'agent Subsidiary Extractor
     subs_report: Optional[Dict[str, Any]] = None
     subs_raw: Optional[str] = None
-    
+
     # Résultats de l'agent Meta Validator
     meta_report: Optional[Dict[str, Any]] = None
     meta_raw: Optional[str] = None
-    
+
     warnings: List[str] = field(default_factory=list)
 
     def log(self, step: str, payload: Any) -> None:
@@ -448,7 +451,7 @@ async def orchestrate_extraction(
 ) -> Dict[str, Any]:
     """
     Orchestrateur principal du pipeline d'extraction multi-agents.
-    
+
     Séquence d'exécution :
     1. 🔍 Company Analyzer : Identification de l'entité légale
     2. ⛏️ Information Extractor : Consolidation des informations clés

@@ -18,7 +18,7 @@ from .meta_validator import meta_validator
 
 __all__ = [
     "company_analyzer",
-    "subsidiary_extractor", 
+    "subsidiary_extractor",
     "meta_validator",
     "information_extractor",
     "url_validator",
