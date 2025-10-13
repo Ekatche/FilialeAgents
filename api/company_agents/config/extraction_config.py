@@ -5,7 +5,8 @@ This module contains all the configuration settings for URL validation,
 timeouts, headers, and feature flags.
 """
 
-from typing import Dict, Set
+from typing import Dict, Set, List
+import os
 
 # Configuration pour la validation des URLs
 _URL_STATUS_CACHE: Dict[str, bool] = {}  # Cache d'accessibilité des URLs
@@ -28,6 +29,11 @@ URL_REQUEST_HEADERS: Dict[str, str] = {
 # Feature flags: activer/désactiver les filtres post-extraction (accessibilité & fraîcheur)
 ENABLE_URL_FILTERING = True
 ENABLE_FRESHNESS_FILTERING = True
+
+# Chemins on‑domain à tester en fallback (configurable via env URL_FALLBACK_PATHS)
+# Exemple d'override: URL_FALLBACK_PATHS="/,/contact,/legal,/imprint,/mentions-legales"
+_DEFAULT_FALLBACK = "/,/contact,/contact/,/about,/mentions-legales,/legal,/imprint"
+ONDOMAIN_FALLBACK_PATHS: List[str] = [p.strip() for p in os.getenv("URL_FALLBACK_PATHS", _DEFAULT_FALLBACK).split(",") if p.strip()]
 
 # Configuration des tours maximum (sera resserrée côté orchestrateur)
 MAX_TURNS = {"analyze": 2, "info": 2, "subs": 3, "meta": 1}

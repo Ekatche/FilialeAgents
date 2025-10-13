@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import uuid
 import logging
+import time
 
 from status import status_manager
 from services.agent_tracking_service import agent_tracking_service
@@ -45,6 +46,7 @@ async def extract_company_data(
         Dict contenant les informations d'entreprise extraites
     """
     sid = session_id or str(uuid.uuid4())
+    start_time = time.perf_counter()
 
     # Démarrage du tracking de session
     await agent_tracking_service.start_extraction_tracking(sid, input_query)
@@ -58,11 +60,22 @@ async def extract_company_data(
         )
 
         # Ajout des métadonnées d'extraction
-        result.setdefault(
-            "extraction_metadata",
-            {"input_type": "url" if input_query.startswith("http") else "name"},
+        # Préparer / compléter les métadonnées d'extraction
+        metadata = result.get("extraction_metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        metadata.setdefault(
+            "input_type",
+            "url" if input_query.startswith("http") else "name",
         )
-        result.setdefault("extraction_date", datetime.now(timezone.utc).isoformat())
+        metadata["session_id"] = sid
+        metadata["processing_time"] = int(
+            (time.perf_counter() - start_time) * 1000
+        )
+        result["extraction_metadata"] = metadata
+
+        result["extraction_date"] = datetime.now(timezone.utc).isoformat()
 
         # Stockage des résultats et finalisation du tracking
         await status_manager.store_extraction_results(sid, result)

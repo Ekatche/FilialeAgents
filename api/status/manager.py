@@ -62,45 +62,45 @@ class AgentStatusManager:
         """Crée une nouvelle session d'extraction"""
         now = datetime.now()
 
-        # Définir les agents impliqués dans l'extraction (noms anonymisés)
+        # Définir les agents impliqués dans l'extraction (ordre d'exécution réel)
         initial_agents = [
             AgentState(
                 name="🔍 Éclaireur",
-                status=AgentStatus.IDLE,
+                status=AgentStatus.WAITING,
                 progress=0.0,
-                message="Prêt à explorer le terrain",
+                message="En attente de démarrage",
                 started_at=now,
                 updated_at=now,
             ),
             AgentState(
                 name="⛏️ Mineur",
-                status=AgentStatus.IDLE,
+                status=AgentStatus.WAITING,
                 progress=0.0,
-                message="Prêt à extraire les ressources",
-                started_at=now,
-                updated_at=now,
-            ),
-            AgentState(
-                name="🔗 Vérificateur",
-                status=AgentStatus.IDLE,
-                progress=0.0,
-                message="Prêt à valider les données",
+                message="En attente de démarrage",
                 started_at=now,
                 updated_at=now,
             ),
             AgentState(
                 name="🗺️ Cartographe",
-                status=AgentStatus.IDLE,
+                status=AgentStatus.WAITING,
                 progress=0.0,
-                message="Prêt à cartographier le réseau",
+                message="En attente de démarrage",
                 started_at=now,
                 updated_at=now,
             ),
             AgentState(
                 name="⚖️ Superviseur",
-                status=AgentStatus.IDLE,
+                status=AgentStatus.WAITING,
                 progress=0.0,
-                message="Prêt à superviser la qualité",
+                message="En attente de démarrage",
+                started_at=now,
+                updated_at=now,
+            ),
+            AgentState(
+                name="🔄 Restructurateur",
+                status=AgentStatus.WAITING,
+                progress=0.0,
+                message="En attente de démarrage",
                 started_at=now,
                 updated_at=now,
             ),

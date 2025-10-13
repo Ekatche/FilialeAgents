@@ -128,12 +128,25 @@ class Subsidiary(BaseModel):
     sources: List[SourceRef] = Field(..., min_length=1, max_length=2)
 
 
+class MainCompanyInfo(BaseModel):
+    """Informations sur l'entreprise principale (quand pas de filiales)"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    address: Optional[str] = Field(default=None, max_length=500)
+    revenue: Optional[str] = Field(default=None, max_length=100)
+    employees: Optional[str] = Field(default=None, max_length=50)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=100)
+
+
 class ExtractionSummary(BaseModel):
     """Résumé d'extraction"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
     total_found: int = Field(..., ge=0)
+    main_company_info: Optional[MainCompanyInfo] = Field(default=None)
     methodology_used: Optional[List[str]] = Field(default=None, max_length=5)
 
 
@@ -198,6 +211,8 @@ class CompanyInfo(BaseModel):
     revenue_recent: Optional[str] = Field(default=None, max_length=100)
     employees: Optional[str] = Field(default=None, max_length=100)
     founded_year: Optional[int] = Field(default=None, ge=1800, le=2030)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=100)
     subsidiaries_details: List[SubsidiaryDetail] = Field(
         default_factory=list, max_length=10
     )

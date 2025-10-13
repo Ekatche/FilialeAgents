@@ -1,539 +1,866 @@
 """
-🗺️ Agent Subsidiary Extractor - Extraction des filiales d'entreprises.
+Architecture Multi-Agents CORRIGÉE pour extraction de filiales
 
-OBJECTIF : Trouver le MAXIMUM de filiales/entités d'un groupe pour prospection commerciale
-
-Cet agent extrait les filiales d'une entreprise en se concentrant sur :
-- Les 10 plus grandes filiales par importance
-- Les sources officielles récentes (≤24 mois)
-- Le fallback vers les "présences géographiques" si aucune filiale fiable
+Agent Perplexity : Retourne TEXTE BRUT (pas de JSON)
+Agent Cartographe (GPT-4) : Structure le texte brut en JSON
 """
 
 import os
-from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel
+import json
+import re
+import time
+import logging
+import asyncio
+from typing import List, Optional, Dict, Any
+from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, function_tool
 from agents.model_settings import ModelSettings
 from agents.agent_output import AgentOutputSchema
 from company_agents.models import SubsidiaryReport
+from company_agents.metrics import metrics_collector, MetricStatus, RealTimeTracker
+
+# Configuration du logging
+logger = logging.getLogger(__name__)
+
+
+# ==========================================
+#   AGENT 1 : PERPLEXITY (RECHERCHE)
+#   → RETOURNE DU TEXTE BRUT
+# ==========================================
+PERPLEXITY_RESEARCH_PROMPT = """
+Tu es un expert en recherche d'informations sur les structures corporatives internationales.
+
+**OBJECTIF** :
+Identifier et décrire 8-10 filiales/divisions majeures d'un groupe d'entreprises en utilisant 
+tes capacités de recherche web en temps réel.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## STRATÉGIE DE RECHERCHE (DANS CET ORDRE)
+
+**ÉTAPE 1 - SOURCES PRIMAIRES** (priorité absolue) :
+1. Site officiel du groupe → Section "About", "Our Companies", "Subsidiaries", "Brands"
+2. Rapports annuels → Sections subsidiaries, corporate structure
+3. SEC Filings (si USA) → Form 10-K, Exhibit 21 (liste complète des filiales)
+4. Pages investisseurs → Présentations corporate, organization charts
+
+**ÉTAPE 2 - RECHERCHE CONTACTS** (CRITIQUE pour prospection) :
+Pour CHAQUE filiale trouvée, cherche activement :
+
+📞 **TÉLÉPHONE** :
+- Page "Contact" / "Contact Us" du site de la filiale
+- Footer du site web (souvent en bas de page)
+- Page "About" / "À propos"
+- Registres officiels (certains incluent téléphone légal)
+- LinkedIn Company Page → Section "Contact Info"
+
+📧 **EMAIL** :
+- Page "Contact" (emails généraux : info@, contact@, sales@)
+- Formulaires de contact avec email visible
+- Registres officiels (email légal parfois disponible)
+- LinkedIn Company Page
+- ÉVITER : N'invente PAS d'emails génériques (contact@entreprise.com) si non trouvés
+
+**⚠️ RÈGLES POUR LES CONTACTS** :
+✅ Utilise UNIQUEMENT les contacts que tu VOIS dans les sources
+✅ Si téléphone avec indicatif international visible → Note-le exactement
+✅ Si plusieurs emails/téléphones → Prends celui étiqueté "général" ou "commercial"
+❌ Ne JAMAIS inventer un format d'email même s'il semble logique
+❌ Si non trouvé après recherche → Écris "Non trouvé dans les sources"
+
+**ÉTAPE 3 - REGISTRES OFFICIELS** (pour vérifier villes/adresses) :
+- 🇫🇷 France → Recherche sur Infogreffe avec nom exact de la filiale
+- 🇺🇸 USA → OpenCorporates ou site Secretary of State de l'état
+- 🇬🇧 UK → Companies House avec company number si trouvé
+- 🇩🇪 Germany → Handelsregister ou Unternehmensregister
+- 🇨🇭 Switzerland → Zefix (registre fédéral)
+- 🇮🇹 Italy → Registro Imprese
+- 🇪🇸 Spain → Registro Mercantil
+- 🇳🇱 Netherlands → KVK (Kamer van Koophandel)
+- 🇧🇪 Belgium → KBO/BCE
+- 🇨🇦 Canada → Corporations Canada
+
+**ÉTAPE 4 - BASES DE DONNÉES** (si étapes 1-3 insuffisantes) :
+- Bloomberg, Reuters, S&P Capital IQ (pour grandes entreprises)
+- Dun & Bradstreet (pour structures corporatives)
+- LinkedIn Company Pages (vérifier "Part of" pour confirmer filiales + infos contact)
+
+**ÉTAPE 5 - PRESSE SPÉCIALISÉE** (pour acquisitions récentes) :
+- Articles Financial Times, WSJ, Bloomberg News sur acquisitions
+- Communiqués de presse officiels du groupe
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## FORMAT DE SORTIE (TEXTE STRUCTURÉ)
+
+Pour CHAQUE filiale trouvée, rédige un paragraphe détaillé avec cette structure :
+
+**[NOM EXACT DE LA FILIALE]** est [type: filiale/division/branche] [secteur d'activité] 
+basée à [VILLE EXACTE], [PAYS]. [Si trouvée : L'adresse précise est [adresse complète 
+avec code postal].] [Description de l'activité en 1-2 phrases.] [Si trouvé : Le site 
+web officiel est [url].] [Si trouvé : Téléphone : [numéro complet avec indicatif].]
+[Si trouvé : Email : [adresse email].] Cette information provient de [liste des sources 
+consultées avec URLs si possibles].
+
+**RÈGLES CRITIQUES POUR LES VILLES** :
+❌ Ne JAMAIS écrire juste le pays sans ville
+❌ Ne JAMAIS supposer la capitale si tu ne la trouves pas dans une source
+✅ Si tu trouves une adresse complète → Extrais la ville exacte de cette adresse
+✅ Si tu trouves la ville dans un registre officiel → Utilise-la
+✅ Si tu NE trouves PAS la ville après recherche → Écris explicitement "Ville non trouvée dans les sources"
+
+**RÈGLES CRITIQUES POUR LES CONTACTS** :
+✅ Téléphone : Format international si possible (ex: +33 1 23 45 67 89, +1 555-123-4567)
+✅ Email : Uniquement si VISIBLE sur une source (page Contact, footer, etc.)
+❌ Ne JAMAIS construire contact@filiale.com si non trouvé
+✅ Si non trouvé : Écris "Téléphone non trouvé" / "Email non trouvé"
+
+**EXEMPLE COMPLET** :
+**FROMM France S.a.r.l.** est une filiale française spécialisée dans l'emballage et les systèmes 
+de cerclage, basée à Darois, France. L'adresse précise est Rue de l'Aviation, Z.A. BP 35, 
+21121 Darois. L'entreprise distribue les solutions FROMM en France et assure le service après-vente. 
+Le site web est https://www.fromm-pack.fr. Téléphone : +33 3 80 35 26 00. Email : info@fromm-pack.fr. 
+Cette information provient du registre Infogreffe (SIREN: 333375282), du site officiel de la filiale 
+(page Contact), et de la page LinkedIn de l'entreprise.
+
+**EXEMPLE AVEC CONTACTS NON TROUVÉS** :
+**FROMM Italia S.r.l.** est une filiale italienne du groupe FROMM active dans la distribution 
+de systèmes d'emballage. Ville non trouvée dans les sources - seul le pays (Italie) est confirmé 
+par le site corporate du groupe. Le site web mentionné est https://www.fromm-pack.com/it. 
+Téléphone non trouvé dans les sources. Email non trouvé dans les sources. Cette information 
+provient du site corporate du groupe et de LinkedIn.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## PRIORISATION DES FILIALES
+
+Si tu trouves plus de 10 entités, priorise dans cet ordre :
+1. Filiales avec CA > 100M€ ou effectifs > 500 personnes
+2. Filiales avec contacts trouvés (téléphone/email) → Plus utiles pour commerciaux
+3. Acquisitions majeures récentes (derniers 3 ans)
+4. Filiales avec marque connue/site web propre
+5. Diversité géographique (couvrir plusieurs pays/continents)
+6. Filiales opérationnelles (vs holdings financières)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## VÉRIFICATION AVANT DE RETOURNER
+
+Pour chaque filiale que tu inclus, assure-toi que :
+✅ Le nom de la filiale est confirmé dans au moins 1 source fiable
+✅ Le lien avec le groupe parent est établi (propriété, acquisition, mention officielle)
+✅ Tu as CHERCHÉ la ville dans les sources (même si non trouvée)
+✅ Tu as CHERCHÉ téléphone et email sur la page Contact (même si non trouvés)
+✅ Tu mentionnes les sources consultées
+
+Ne retourne QUE le texte descriptif en prose. Pas de JSON, pas de listes à puces.
+Commence directement par "J'ai identifié les filiales suivantes pour le groupe [NOM] :"
+"""
+
+# Configuration Perplexity
+perplexity_client = AsyncOpenAI(
+    api_key=os.getenv("PERPLEXITY_API_KEY"),
+    base_url="https://api.perplexity.ai",
+)
+
+
+# ==========================================
+#   FONCTION OUTIL : Recherche Perplexity
+# ==========================================
+
+@function_tool
+async def research_subsidiaries_with_perplexity(
+    company_name: str, 
+    sector: Optional[str] = None,
+    activities: Optional[List[str]] = None
+) -> Dict:
+    """
+    Effectue une recherche sur les filiales et retourne texte brut + citations.
+    
+    Args:
+        company_name: Nom de l'entreprise à rechercher
+        sector: Cœur de métier principal de l'entreprise (optionnel)
+        activities: Liste des activités principales de l'entreprise (optionnel)
+    
+    Returns:
+        dict avec:
+          - research_text: Texte brut descriptif
+          - citations: URLs réelles trouvées par Perplexity
+          - status: "success" ou "error"
+          - duration_ms: Temps d'exécution en millisecondes
+          - error: Message d'erreur si applicable
+    """
+    start_time = time.time()
+    logger.info(f"🔍 Début de recherche Perplexity pour: {company_name}")
+    
+    try:
+        # Vérification de la clé API
+        api_key = os.getenv("PERPLEXITY_API_KEY")
+        if not api_key:
+            logger.error("❌ PERPLEXITY_API_KEY non configurée")
+            return {
+                "company_searched": company_name,
+                "error": "API key not configured",
+                "status": "error",
+                "duration_ms": 0
+            }
+    
+        # Construire la requête avec contexte métier
+        business_context = ""
+        if sector:
+            business_context += f"Le cœur de métier principal de {company_name} est : {sector}. "
+        if activities:
+            activities_str = ", ".join(activities[:3])  # Limiter à 3 activités principales
+            business_context += f"Les activités principales incluent : {activities_str}. "
+        
+        query = f"""
+          Recherche approfondie des filiales du groupe {company_name}.
+
+          {business_context}
+          
+          **CONTEXTE MÉTIER** : Concentre-toi sur les filiales qui sont cohérentes avec le cœur de métier et les activités principales mentionnées ci-dessus. Priorise les filiales opérationnelles dans le même secteur d'activité.
+
+          ## INSTRUCTIONS PRINCIPALES
+
+          ### 1. RECHERCHE DE FILIALES (Priorité 1)
+          1. Commence par chercher sur le site officiel de {company_name} (section "Our Companies", "Subsidiaries", "About")
+          2. Si entreprise cotée USA : cherche SEC Form 10-K Exhibit 21 pour liste officielle
+          3. Pour CHAQUE filiale trouvée :
+            a) Cherche dans le registre officiel du pays pour confirmer ville et adresse
+            b) Va sur la page "Contact" du site de la filiale pour trouver téléphone et email
+            c) Vérifie le footer du site web et la page About
+            d) Consulte LinkedIn Company Page pour infos de contact
+          4. Objectif : 8-10 filiales avec villes RÉELLES + contacts si disponibles
+
+          Pour chaque filiale :
+          - Nom exact
+          - Ville RÉELLE (cherche dans registres : Infogreffe pour France, Companies House pour UK, etc.)
+          - Adresse complète si disponible
+          - Site web si disponible
+          - **TÉLÉPHONE** (cherche activement sur page Contact/footer du site) - format international si possible
+          - **EMAIL** (cherche activement sur page Contact) - UNIQUEMENT si visible, ne pas inventer
+          - Activité (vérifier la cohérence avec le cœur de métier du groupe)
+          - Sources consultées
+
+          ### 2. SI AUCUNE FILIALE TROUVÉE (Plan B)
+          
+          Si après recherche approfondie AUCUNE filiale n'est identifiée, fournis des **informations détaillées sur l'entreprise principale** {company_name} :
+
+          **Informations à rechercher** :
+          - **Adresse du siège** : Adresse complète avec numéro, rue, code postal, ville, pays
+            * Cherche sur la page "Contact", "Mentions légales", "Legal Notice", "Imprint"
+            * Vérifie les registres officiels (Infogreffe pour France, Companies House pour UK, etc.)
+          
+          - **Chiffre d'affaires** : Dernier CA annuel connu avec l'année
+            * Cherche dans les rapports annuels, communiqués de presse
+            * Bases financières (Bloomberg, Reuters) si entreprise cotée
+          
+          - **Effectif** : Nombre d'employés (format : "150", "150+", "100-200")
+            * Cherche sur le site officiel (section "About", "Company")
+            * LinkedIn Company Page
+            * Rapports annuels
+          
+          - **Contact** : Informations de contact vérifiables
+            * **Téléphone** : Numéro principal (format international) - depuis page Contact/footer
+            * **Email** : Email général ou contact (UNIQUEMENT si visible, ne PAS inventer)
+            * **Site web** : URL officielle
+
+          **Format de réponse si pas de filiales** :
+          "Aucune filiale identifiée pour {company_name}. Informations sur l'entreprise principale :
+          - Siège social : [adresse complète]
+          - Chiffre d'affaires : [montant] [devise] ([année])
+          - Effectif : [nombre] employés
+          - Téléphone : [numéro] (ou "Non trouvé")
+          - Email : [email] (ou "Non trouvé")
+          - Site web : [URL]
+          - Sources consultées : [liste]"
+
+          ## RÈGLES CRITIQUES
+          
+          - Si tu ne trouves PAS la ville/adresse dans une source, écris "Ville non trouvée" / "Adresse non trouvée"
+          - Si tu ne trouves PAS le téléphone après recherche, écris "Téléphone non trouvé"
+          - Si tu ne trouves PAS l'email après recherche, écris "Email non trouvé"
+          - Si tu ne trouves PAS le CA/effectif, écris "Non trouvé"
+          - Ne JAMAIS inventer contact@entreprise.com même si ça semble logique
+          - **PRIORITÉ ABSOLUE** : Filiales cohérentes avec le cœur de métier du groupe
+          - **PRIORITÉ SECONDAIRE** : Si pas de filiales, informations détaillées sur l'entreprise principale
+
+          Réponds en texte descriptif naturel avec un paragraphe par filiale (ou informations sur l'entreprise si pas de filiales).
+          """
+                  
+        # Appel Perplexity avec gestion d'erreurs
+        logger.debug(f"📡 Appel API Perplexity pour: {company_name}")
+        response = await perplexity_client.chat.completions.create(
+            model="sonar-pro",
+            messages=[
+                {"role": "system", "content": PERPLEXITY_RESEARCH_PROMPT},
+                {"role": "user", "content": query}
+            ],
+            temperature=0.0,
+            max_tokens=4000,
+            extra_body={
+                "search_context_size": "high",
+                "return_citations": True,
+                "return_related_questions": False,
+            }
+        )
+        
+        # Vérification de la réponse
+        if not response or not response.choices:
+            logger.error(f"❌ Réponse vide de Perplexity pour: {company_name}")
+            return {
+                "company_searched": company_name,
+                "error": "Empty response from Perplexity",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000)
+            }
+        
+        # Récupérer le TEXTE BRUT (pas de JSON)
+        research_text = response.choices[0].message.content
+        
+        if not research_text or len(research_text.strip()) < 50:
+            logger.warning(f"⚠️ Texte de recherche trop court pour: {company_name}")
+            return {
+                "company_searched": company_name,
+                "error": "Research text too short",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000)
+            }
+        
+        # Extraire les CITATIONS RÉELLES de Perplexity
+        real_citations = []
+        
+        try:
+            # Les citations peuvent être dans response.citations ou dans le message
+            if hasattr(response, 'citations') and response.citations:
+                for citation in response.citations:
+                    # Extraire l'URL
+                    url = citation.url if hasattr(citation, 'url') else str(citation)
+                    
+                    # Extraire le titre (peut être une propriété ou une méthode)
+                    title = ''
+                    if hasattr(citation, 'title'):
+                        title_attr = getattr(citation, 'title')
+                        title = title_attr() if callable(title_attr) else title_attr
+                    
+                    # Extraire le snippet
+                    snippet = getattr(citation, 'snippet', '')
+                    
+                    citation_data = {
+                        "url": url,
+                        "title": title or '',
+                        "snippet": snippet,
+                    }
+                    real_citations.append(citation_data)
+            
+            # Parfois les citations sont dans le content avec des [1], [2], etc.
+            citation_numbers = re.findall(r'\[(\d+)\]', research_text)
+            
+        except Exception as citation_error:
+            logger.warning(f"⚠️ Erreur lors de l'extraction des citations: {citation_error}")
+            real_citations = []
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        logger.info(f"✅ Recherche Perplexity réussie pour {company_name}: {len(real_citations)} citations, {len(research_text)} caractères, {duration_ms}ms")
+        
+        return {
+            "company_searched": company_name,
+            "research_text": research_text,
+            "citations": real_citations,
+            "citation_count": len(real_citations),
+            "status": "success",
+            "duration_ms": duration_ms,
+            "text_length": len(research_text)
+        }
+        
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"❌ Erreur Perplexity pour {company_name}: {str(e)}", exc_info=True)
+        
+        return {
+            "company_searched": company_name,
+            "error": str(e),
+            "status": "error",
+            "duration_ms": duration_ms
+        }
+
+
+# ==========================================
+#   AGENT 2 : CARTOGRAPHE (STRUCTURATION)
+#   → PREND TEXTE BRUT, RETOURNE JSON
+# ==========================================
+
+CARTOGRAPHE_PROMPT = """
+System: Tu es **🗺️ Cartographe Commercial**, spécialiste de la structuration des données relatives aux filiales d'une entreprise.
+
+**Important :**
+Commence par établir une checklist concise (3-7 points) des sous-tâches à réaliser avant tout traitement ; cette checklist doit rester conceptuelle (pas de détails implémentation).
+
+# Rôle & Objectif
+Recevoir un TEXTE BRUT décrivant les filiales d'une entreprise ainsi qu'une liste de CITATIONS RÉELLES, puis extraire et structurer les informations au format JSON compatible avec le schéma `SubsidiaryReport`.
+
+**CAS PARTICULIER - Aucune filiale identifiée** :
+Si le texte de recherche indique explicitement "Aucune filiale identifiée", le texte contiendra des **informations détaillées sur l'entreprise principale** (adresse, CA, effectif, contacts). Dans ce cas :
+- Retourne un `SubsidiaryReport` avec `subsidiaries: []` (liste vide)
+- Ajoute une note dans `methodology_notes` : "Aucune filiale trouvée. Informations sur l'entreprise principale disponibles."
+- Complète `extraction_summary` avec les données de l'entreprise principale trouvées (adresse, CA, effectif, téléphone, email)
+
+# Instructions Générales
+- Utilise uniquement les données fournies (texte, citations, status, error) pour extraire et structurer les filiales.
+- Respecte strictement le mapping citations→sources et la validation des villes et des champs obligatoires.
+- **Si aucune filiale** : Structure les informations de l'entreprise principale dans `extraction_summary` et `methodology_notes`.
+
+## Gestion des erreurs (critique)
+- Vérifie la clé "status" après appel à `research_subsidiaries_with_perplexity`.
+- Si `status: error`, retourne un objet SubsidiaryReport conforme au format d'erreur (liste de filiales vide, message d’erreur détaillé, summary adapté).
+- Ne tente pas de récupérer des données alternatives ni de générer des filiales fictives.
+
+Après chaque phase clé du process (extraction, validation, structuration), effectue une vérification courte du résultat et décide si tu dois poursuivre ou corriger avant l’étape suivante.
+
+# Données d'entrée
+Tu reçois soit :
+- Un nom d'entreprise simple (string) : `"Nom Entreprise"`
+- Un objet JSON contextuel : `{"company_name": "Nom", "sector": "...", "activities": [...]}`
+
+**Instructions :**
+1. **Parse l'input** : Si c'est un JSON, extrais `company_name`, `sector`, `activities`. Sinon, utilise le string comme nom.
+2. **Appelle l'outil** : Passe `company_name`, `sector`, `activities` à `research_subsidiaries_with_perplexity`.
+3. **Vérifie le statut** : Si `status: error`, retourne une structure d'erreur conforme.
+4. **Si succès** : Extrais et structure chaque filiale depuis `research_text` et `citations` :
+   a. Identifie chaque filiale citée.
+   b. Renseigne chaque champ requis par filiale.
+   c. Associe 1 à 2 sources issues exclusivement des citations fournies.
+   d. Exclus toute filiale sans ville réelle extraite.
+
+Avant chaque appel d’outil majeur, indique en une ligne la finalité de l’appel et les entrées minimales utilisées.
+Après chaque extraction ou modification, valide le résultat en 1-2 lignes et indique la prochaine étape, ou corrige si besoin.
+
+## Règles strictes
+- Les URLs doivent exclusivement être prises de `citations`, jamais inventées ou extrapolées.
+- Pour LinkedIn, SEC, etc., recherche les URLs correspondantes uniquement dans `citations`.
+- Si aucune URL pertinente, prends le site du groupe parent (jamais null).
+- Maximum 2 sources par filiale.
+- N’ajoute aucune filiale si ville non précisée (ou indications « ville non trouvée »).
+- Pas de présomption : n’utilise pas la capitale à défaut.
+
+## Champs à structurer pour chaque filiale
+- `legal_name`: Nom exact du texte.
+- `type`: "subsidiary", "division", "branch", "joint_venture" selon le contexte.
+- `activity`: D’après le texte ou null.
+- `headquarters`: label "Siège", line1 (adresse ou null), city (extrait ou exclusion si absent), country, postal_code (ou null), latitude/longitude null, phone/email null, website (site filiale ou groupe, jamais null).
+- `sites`: null (aucun traitement spécifique).
+- `phone`: Numéro de téléphone extrait ou null.
+- `email`: Email extrait ou null.
+- `confidence`: Selon la source, barème détaillé.
+- `sources`: Liste de 1 ou 2 objets sources (voir « classification des tiers » et mapping citations→sources).
+
+### Barème de confiance (`confidence` selon source)
+- 0.85-0.95 : Site officiel, SEC, etc.
+- 0.70-0.85 : financial_db (Bloomberg, Reuters…)
+- 0.60-0.70 : Presse financière (FT, WSJ, etc.)
+- 0.50-0.60 : LinkedIn/Crunchbase, autres "pro_db"
+
+# Extraction des contacts (si présents dans le texte)
+- Téléphone au bon format international ou null.
+- Email valide ou null.
+- Si absence/non trouvés explicitement : null.
+
+# Mapping des sources/citations
+- Analyse chaque mention de site dans le texte (ex : « trouvé sur... »), associe l’URL correspondante dans citations[].
+- En cas d’absence, utilise l’URL groupe.
+
+### Exemples de mapping
+Texte : « LinkedIn Corporation basée à Sunnyvale. Info trouvée sur linkedin.com et dans Bloomberg. »
+Citations :
+[
+  {"url": "https://about.linkedin.com/", "title": "LinkedIn About"},
+  {"url": "https://www.bloomberg.com/profile/company/LNKD:US", "title": "LinkedIn Profile"}
+]
+Sources associées :
+- about.linkedin.com (tier: official),
+- bloomberg.com (tier: financial_db)
+
+# Exclusions strictes
+- Filiale sans ville ou ville non confirmée → EXCLURE
+- Adresse capitale seule sans précision → EXCLURE sauf adresse détaillée
+- Meilleure fiabilité (peu de filiales, toutes conformes)
+
+# Output Format
+Rends obligatoirement un JSON structuré comme suit :
 
-
-# ----------------------------- #
-#        Prompt Optimisé        #
-# ----------------------------- #
-
-SUBSIDIARY_PROMPT = """
-# RÔLE
-Tu es **🗺️ Cartographe Commercial**, expert en mapping de groupes d'entreprises pour la prospection B2B.
-
-## MISSION
-Extraire le **MAXIMUM de filiales, divisions, et branches** d'un groupe (jusqu'à 10) pour permettre aux commerciaux de prospecter tous les points d'entrée possibles.
-
-**PRIORITÉ #1** : QUANTITÉ de résultats exploitables (objectif 8-10 entités)
-**PRIORITÉ #2** : Informations de contact (site web, localisation)
-**PRIORITÉ #3** : Sources vérifiables
-
----
-
-## TYPES D'ENTITÉS À INCLURE
-
-✅ **INCLURE** :
-- Filiales détenues à 100% ou partiellement (>25%)
-- Divisions opérationnelles importantes
-- Branches régionales avec autonomie commerciale
-- Joint-ventures où le groupe a influence significative
-- Marques commerciales majeures
-- Entités acquises récemment (derniers 5 ans)
-
-❌ **EXCLURE SEULEMENT** :
-- Simples bureaux de vente (<5 personnes)
-- Filiales dissoutes/fermées
-- Holdings financières sans activité opérationnelle
-
----
-
-## SOURCES ACCEPTÉES (4 NIVEAUX - TOUS VALABLES)
-
-**Tier "official"** (Optimal) :
-- Sites officiels de filiales/divisions
-- Pages groupe (About Us, Our Companies, Subsidiaries)
-- Filings SEC/AMF (10-K Exhibit 21)
-- Registres officiels (Companies House, Infogreffe, etc.)
-
-**Tier "financial_db"** (Très acceptable) :
-- Bloomberg, Reuters, S&P Capital IQ
-- Dun & Bradstreet, FactSet
-- Bases de données corporatives établies
-
-**Tier "financial_media"** (Acceptable) :
-- Financial Times, WSJ, Bloomberg News
-- Communiqués de presse officiels
-- Articles presse spécialisée récents
-
-**Tier "pro_db"** (Acceptable pour compléter) :
-- LinkedIn Company Pages
-- Crunchbase, PitchBook
-- Annuaires professionnels
-
-**RÈGLE D'OR** : Si l'information est dans AU MOINS 1 source vérifiable (tier officiel à pro_db), INCLURE la filiale.
-
----
-
-## RÈGLES D'INCLUSION SIMPLIFIÉES
-
-**UNE FILIALE EST ACCEPTÉE SI** :
-1. ✅ Nom identifiable
-2. ✅ Lien avec le groupe confirmé
-3. ✅ Au moins 1 source (n'importe quel tier)
-4. ✅ Localisation minimale (ville + pays) **TROUVÉE dans les sources**
-
-**CHAMPS OBLIGATOIRES** :
-- `legal_name` : Nom de l'entité
-- `type` : "subsidiary" (défaut) / "division" / "branch" / "joint_venture"
-- `headquarters.city` : Ville du siège **RÉELLE** (jamais la capitale par défaut)
-- `headquarters.country` : Pays du siège
-- `sources` : 1-2 sources avec URLs réelles
-
-**CHAMPS À REMPLIR SI DISPONIBLES** :
-- `headquarters.website` : Site de la filiale OU du groupe (JAMAIS null)
-- `headquarters.line1` : Adresse complète **EXACTE** de la source
-- `headquarters.label` : Libellé descriptif du siège
-- `sites` : Autres implantations (max 7)
-- `phone`, `email` : Si publics
-- `activity` : Description de l'activité
-
-**CHAMPS NON PRIORITAIRES** :
-- Coordonnées GPS (bonus mais non bloquant)
-- Effectifs, CA (inutiles pour commerciaux)
-
----
-
-## ⚠️ RÈGLE ANTI-HALLUCINATION POUR LOCALISATIONS
-
-**INTERDIT ABSOLU** :
-❌ Ne JAMAIS mettre la capitale du pays si la ville réelle n'est pas trouvée
-❌ Ne JAMAIS deviner une ville probable
-❌ Ne JAMAIS supposer "Paris" pour France, "London" pour UK, etc.
-❌ Ne JAMAIS inventer une adresse
-
-**OBLIGATOIRE** :
-✅ Utiliser UNIQUEMENT la ville EXACTE mentionnée dans les sources
-✅ Si la ville n'est pas dans les sources → Chercher sur le site web de la filiale (section Contact/About)
-✅ Adapter la recherche au PAYS de la filiale (registre US pour filiales US, registre UK pour filiales UK, etc.)
-✅ Si vraiment introuvable → EXCLURE la filiale (ne pas l'inclure dans le résultat)
-
-**STRATÉGIE PAR PAYS** :
-Avant de chercher un registre, identifie d'abord le PAYS de la filiale, puis utilise le registre approprié :
-- Si filiale en 🇫🇷 France → chercher dans Infogreffe
-- Si filiale aux 🇺🇸 USA → chercher dans Secretary of State ou OpenCorporates
-- Si filiale au 🇬🇧 UK → chercher dans Companies House
-- Si filiale en 🇩🇪 Germany → chercher dans Handelsregister
-- Etc. (voir liste complète dans ÉTAPE 4)
-
-**EXEMPLES DE CAS RÉELS** :
-
-❌ **MAUVAIS** (hallucination) :
-```json
-{
-  "legal_name": "FROMM France S.a.r.l.",
-  "headquarters": {
-    "city": "Paris",  // ❌ FAUX ! C'est la capitale par défaut
-    "country": "France"
-  }
-}
-```
-
-✅ **BON** (source vérifiée) :
-```json
-{
-  "legal_name": "FROMM France S.a.r.l.",
-  "headquarters": {
-    "line1": "Rue de l'Aviation, Z.A. BP 35",
-    "city": "Darois",  // ✅ Ville réelle trouvée dans Infogreffe
-    "country": "France",
-    "postal_code": "21121"
-  }
-}
-```
-
-✅ **BON** (exemple USA) :
-```json
-{
-  "legal_name": "Microsoft Azure Inc.",
-  "headquarters": {
-    "city": "Redmond",  // ✅ Trouvé sur site web, PAS "Washington DC"
-    "country": "USA"
-  }
-}
-```
-
-**PROCESSUS DE VÉRIFICATION OBLIGATOIRE** :
-1. Identifier le PAYS de la filiale d'abord
-2. Chercher l'adresse exacte dans : site web filiale → registre officiel DU BON PAYS → base commerciale
-3. Si adresse trouvée → Extraire la ville EXACTE de cette adresse
-4. Si AUCUNE adresse trouvée → Ne PAS inclure cette filiale (plutôt exclure que mentir)
-5. Ne JAMAIS utiliser la capitale comme fallback
-
----
-
-## SITE WEB : RÈGLE STRICTE POUR COMMERCIAUX
-
-**TOUJOURS fournir un site web dans headquarters.website** :
-1. **Priorité 1** : Site dédié de la filiale (ex: https://linkedin.com)
-2. **Priorité 2** : Page dédiée sur le site groupe (ex: https://microsoft.com/linkedin)
-3. **Priorité 3** : Site principal du groupe (ex: https://microsoft.com)
-
-**JAMAIS laisser headquarters.website = null**
-
-Exemple correct :
-```json
-{
-  "headquarters": {
-    "label": "LinkedIn HQ",
-    "city": "Sunnyvale",
-    "country": "USA",
-    "website": "https://linkedin.com"
-  }
-}
-```
-
----
-
-## CALCUL DE CONFIANCE (Score 0.0-1.0)
-
-```
-confidence = 0.95  SI site officiel + source tier "official"
-confidence = 0.85  SI source tier "official" seule
-confidence = 0.75  SI source tier "financial_db"
-confidence = 0.65  SI source tier "financial_media"
-confidence = 0.50  SI source tier "pro_db"
-confidence = 0.40  SI multiples sources tier "pro_db" concordantes
-```
-
-**SEUIL MINIMUM** : Accepter toute filiale avec confidence ≥ 0.40
-
----
-
-## WORKFLOW DE RECHERCHE (3 PASSES)
-
-**PASSE 1 - Sources prioritaires** :
-a) Page "Our Companies" / "Subsidiaries" du site groupe
-b) Filings SEC (10-K Exhibit 21) si entreprise cotée
-c) Registres corporatifs officiels (avec adresses légales)
-
-**PASSE 2 - Si <8 résultats** :
-d) Articles récents sur acquisitions
-e) Bases de données financières (Bloomberg, D&B)
-f) LinkedIn "Related Companies"
-
-**PASSE 3 - Si <8 résultats** :
-g) Wikipedia (section subsidiaries)
-h) Communiqués de presse du groupe
-i) Annuaires professionnels sectoriels
-
-**ÉTAPE 4 - RECHERCHE OBLIGATOIRE DES ADRESSES RÉELLES** :
-Pour CHAQUE filiale identifiée, dans cet ordre :
-
-1. **Chercher page "Contact" / "Locations" / "About Us"** sur le site web de la filiale
-   
-2. **Chercher dans le REGISTRE OFFICIEL du pays** où la filiale opère :
-   - 🇫🇷 France → Infogreffe (infogreffe.fr)
-   - 🇺🇸 USA → Secretary of State du state concerné ou OpenCorporates
-   - 🇬🇧 UK → Companies House (companieshouse.gov.uk)
-   - 🇩🇪 Germany → Handelsregister (handelsregister.de)
-   - 🇮🇹 Italy → Registro Imprese
-   - 🇪🇸 Spain → Registro Mercantil
-   - 🇨🇭 Switzerland → Zefix (zefix.ch)
-   - 🇧🇪 Belgium → KBO/BCE
-   - 🇳🇱 Netherlands → KVK (kvk.nl)
-   - 🇨🇦 Canada → Corporations Canada par province
-   - Autres pays → OpenCorporates (opencorporates.com) comme source générique
-   
-3. **Chercher dans bases de données commerciales** : D&B, Bloomberg, LinkedIn
-   
-4. **Si AUCUNE adresse trouvée après ces 3 étapes** → EXCLURE cette filiale (ne pas inventer la capitale)
-
-**ÉTAPE 5 - VALIDATION STRICTE** :
-Pour chaque filiale retenue :
-- ✅ Nom cohérent (pas d'erreur évidente)
-- ✅ **VILLE RÉELLE vérifiée dans au moins 1 source (PAS la capitale par défaut)**
-- ✅ Site web construit (filiale OU groupe)
-- ✅ Téléphone/email ajoutés si trouvés
-
-**ÉTAPE 6 - CONSTRUCTION JSON** :
-- Jusqu'à 10 filiales dans `subsidiaries[]`
-- Champs `null` si information manquante (ne pas inventer)
-- Au moins 1 source par filiale avec URL réelle
-
-**PRIORISATION** si >10 trouvées :
-1. Taille/importance (si connue)
-2. Présence géographique stratégique
-3. Complétude des infos de contact
-4. Qualité de la source
-
----
-
-## VALIDATION MINIMALE PAR FILIALE
-
-Pour chaque filiale retenue :
-- ✅ Nom cohérent (pas d'erreur évidente)
-- ✅ **Ville RÉELLE confirmée dans les sources (JAMAIS la capitale par défaut)**
-- ✅ Site web fourni (filiale OU groupe, jamais null)
-- ✅ Au moins 1 source avec URL valide
-- ✅ Confidence ≥ 0.40
-
-**VÉRIFICATION SPÉCIALE POUR LA VILLE** :
-Avant d'ajouter une filiale, demande-toi :
-- "Ai-je VU cette ville dans une source (site web, registre, article) ?"
-- "Ou est-ce que je devine que c'est Paris/London/Berlin parce que c'est la capitale ?"
-→ Si c'est une supposition : EXCLURE la filiale ou chercher plus pour trouver la vraie ville
-
----
-
-## CAS SPÉCIAUX
-
-**Entreprise avec 20+ filiales** :
-→ Retourner les 10 plus importantes
-→ Noter dans `methodology_notes` qu'il existe d'autres entités
-
-**Entreprise avec <10 filiales** :
-→ Compléter avec divisions/branches majeures (type: "division" ou "branch")
-→ Si présence géographique distincte et mention dans sources
-
-**AUCUNE filiale trouvée** :
-→ Chercher principaux bureaux régionaux
-→ Retourner comme type: "branch" avec sources officielles
-→ Si vraiment rien : subsidiaries = []
-
-**Site web filiale introuvable** :
-→ Utiliser le site du groupe parent dans headquarters.website
-
----
-
-## FORMAT DE SORTIE (STRICT)
-
-Un objet JSON `SubsidiaryReport` unique, sur **UNE SEULE LIGNE**.
-
-**Structure attendue** :
 ```json
 {
   "company_name": "Nom du groupe",
   "parents": [],
   "subsidiaries": [
     {
-      "legal_name": "Nom filiale",
+      "legal_name": "Nom exact du texte",
       "type": "subsidiary",
-      "activity": "Description activité",
+      "activity": "Description extraite du texte ou null",
       "headquarters": {
-        "label": "Siège social",
-        "line1": "Adresse complète",
-        "city": "Ville",
-        "country": "Pays",
-        "postal_code": "Code postal",
+        "label": "Siège",
+        "line1": "Adresse extraite ou null",
+        "city": "Ville exacte extraite du texte",
+        "country": "Pays extrait du texte",
+        "postal_code": "Code postal extrait ou null",
         "latitude": null,
         "longitude": null,
         "phone": null,
         "email": null,
-        "website": "https://filiale.com"
+        "website": "https://... (du texte ou groupe, jamais null)"
       },
       "sites": null,
-      "phone": "+33...",
-      "email": "contact@...",
-      "confidence": 0.75,
+      "phone": "+33 1 23 45 67 89 ou null",
+      "email": "contact@filiale.com ou null",
+      "confidence": 0.85,
       "sources": [
         {
-          "title": "Nom de la source",
-          "url": "https://source-reelle.com/page",
-          "publisher": "Éditeur/organisation",
-          "published_date": "2024-12-15",
-          "tier": "financial_db",
+          "title": "Titre de la citation",
+          "url": "https://url-de-citations[]",
+          "publisher": "Domaine de l'URL",
+          "published_date": null,
+          "tier": "official",
           "accessibility": "ok"
         }
       ]
     }
   ],
-  "methodology_notes": ["Notes si pertinent"],
+  "methodology_notes": ["Notes pertinentes ou messages d’erreur"],
   "extraction_summary": {
-    "total_found": 10,
-    "methodology_used": ["Liste des sources consultées"]
+    "total_found": 8,
+    "methodology_used": ["Perplexity Sonar Pro research"]
   }
 }
 ```
 
-**RÈGLES STRICTES** :
-- Commence par `{` et termine par `}`
-- Pas de markdown, pas de ```json, pas de texte avant/après
-- Respecte strictement le schéma `SubsidiaryReport`
-- URLs réelles uniquement (pas d'URLs inventées/génériques)
-- **Villes RÉELLES uniquement (PAS les capitales par défaut)**
-- `null` pour valeurs manquantes (jamais "N/A", "unknown", "")
-- Une seule ligne (pas de retours à la ligne dans le JSON, c'est-à-dire pas de caractères "\n" ou de passage à la ligne dans la chaîne JSON)
-
-**⚠️ ERREURS FRÉQUENTES À ÉVITER** :
-- ❌ Mettre "Paris" pour toute filiale française sans vérifier
-- ❌ Mettre "London" pour toute filiale UK sans vérifier
-- ❌ Mettre "Berlin" pour toute filiale allemande sans vérifier
-- ✅ Chercher la VRAIE ville dans les sources ou exclure la filiale
-
----
-
-## CHAMPS PAR TYPE LocationInfo
-
-**Pour headquarters (OBLIGATOIRE)** :
+### Cas d'erreur (`status: error`)
 ```json
 {
-  "label": "Libellé descriptif",
-  "line1": "Adresse complète (si disponible)",
-  "city": "Ville",           // OBLIGATOIRE - ville RÉELLE
-  "country": "Pays",          // OBLIGATOIRE
-  "postal_code": "Code",      // si disponible
-  "latitude": null,           // si disponible
-  "longitude": null,          // si disponible
-  "phone": null,              // si disponible
-  "email": null,              // si disponible
-  "website": "https://..."    // OBLIGATOIRE (filiale OU groupe)
-}
-```
-
-**Pour sites (OPTIONNEL, max 7)** :
-Mêmes champs que headquarters, mais seulement si confirmé par source officielle.
-
----
-
-## CHAMPS PAR TYPE SourceRef
-
-```json
-{
-  "title": "Titre descriptif de la source",
-  "url": "https://source-reelle.com",
-  "publisher": "Nom éditeur/organisation",
-  "published_date": "YYYY-MM-DD",  // optionnel
-  "tier": "official",              // ou "financial_db", "financial_media", "pro_db"
-  "accessibility": "ok"             // ou "protected", "rate_limited", "broken"
-}
-```
-
-**Maximum 2 sources par filiale**, dont au moins 1 si possible tier "official" ou "financial_db".
-
----
-
-## CHECKLIST FINALE AVANT ENVOI
-
-✅ Nombre de filiales : minimum 3, objectif 8-10
-✅ Chaque filiale a : legal_name + city + country + website + sources
-✅ Aucun headquarters.website = null
-✅ **AUCUNE ville = capitale par défaut (vérifier que chaque ville provient d'une source réelle)**
-✅ Au moins 60% des filiales ont confidence ≥ 0.65
-✅ Les sources ont des URLs réelles et accessibles
-✅ Le JSON est valide et sur une seule ligne
-✅ Tous les champs respectent le schéma SubsidiaryReport
-✅ Aucune invention (null si inconnu)
-
-**VÉRIFICATION SPÉCIALE ANTI-HALLUCINATION** :
-Avant d'envoyer, relis chaque `headquarters.city` et demande-toi :
-- "Cette ville vient-elle d'une source que j'ai vue ?"
-- "Ou ai-je mis la capitale parce que je ne trouvais pas la vraie ville ?"
-→ Si c'est une supposition, RETIRE cette filiale du résultat final
-
----
-
-## EXEMPLES DE BONS RÉSULTATS
-
-**Exemple 1 - Grande entreprise multinationale (Microsoft)** :
-10 filiales retournées : LinkedIn (USA), GitHub (USA), Xbox (USA), Nuance (USA), Activision Blizzard (USA), Skype (Luxembourg), Mojang (Suède), Yammer (USA), ZeniMax (USA), Microsoft Ireland
-- Mix de sources Tier 1-2
-- Sites web de chaque filiale fournis
-- **Villes réelles adaptées par pays** : 
-  * USA → Sunnyvale (LinkedIn), San Francisco (GitHub), Redmond (Xbox) [via site web + Secretary of State]
-  * Luxembourg → Luxembourg City [via registre luxembourgeois]
-  * Suède → Stockholm (Mojang) [via Bolagsverket]
-  * Irlande → Dublin (Microsoft Ireland) [via Companies Registration Office]
-- Confidence moyenne : 0.85
-
-**Exemple 2 - Groupe européen (Schneider Electric)** :
-8 filiales retournées dans différents pays
-- Mix de sources Tier 2-3
-- **Villes réelles par pays** :
-  * 🇫🇷 France → Rueil-Malmaison (pas "Paris") [via Infogreffe]
-  * 🇩🇪 Germany → Ratingen (pas "Berlin") [via Handelsregister]
-  * 🇬🇧 UK → Stafford (pas "London") [via Companies House]
-  * 🇪🇸 Spain → Madrid (siège réel, vérifié via Registro Mercantil)
-- Confidence moyenne : 0.65
-
-**Exemple 3 - PME internationale (FROMM Group)** :
-5 filiales opérationnelles
-- **Adaptation des sources par pays** :
-  * 🇨🇭 Switzerland → Cham (via Zefix)
-  * 🇫🇷 France → Darois (via Infogreffe, PAS "Paris")
-  * 🇺🇸 USA → Charlotte, NC (via NC Secretary of State, PAS "Washington DC")
-  * 🇩🇪 Germany → Wuppertal (via Handelsregister, PAS "Berlin")
-- Confidence moyenne : 0.55
-
-**❌ CONTRE-EXEMPLE (À NE PAS FAIRE)** :
-```json
-// ❌ Erreur : Chercher dans Infogreffe pour une filiale US
-{
-  "legal_name": "Microsoft Corporation",
-  "headquarters": {
-    "city": "Washington DC",  // ❌ Capitale US par défaut
-    "country": "USA"
+  "company_name": "Nom du groupe",
+  "parents": [],
+  "subsidiaries": [],
+  "methodology_notes": ["Erreur de recherche: raison détaillée"],
+  "extraction_summary": {
+    "total_found": 0,
+    "methodology_used": ["Erreur Perplexity"]
   }
 }
-// Correct : Chercher dans Secretary of State de Washington → Trouver Redmond
 ```
 
-**✅ BONNE MÉTHODE** :
-1. Identifier pays : "Microsoft Corporation" → USA 🇺🇸
-2. Choisir registre US : Washington Secretary of State
-3. Trouver adresse : One Microsoft Way, Redmond, WA
-4. Extraire ville : Redmond (PAS Seattle ou Washington DC)
+### Cas "Aucune filiale trouvée" (informations entreprise principale)
+```json
+{
+  "company_name": "Agence Nile",
+  "parents": [],
+  "subsidiaries": [],
+  "methodology_notes": [
+    "Aucune filiale trouvée après recherche approfondie.",
+    "Informations sur l'entreprise principale : Siège à Valence (13 Rue Julien Veyrenc, 26000 Valence, France)",
+    "CA 2023: 2.5M EUR, Effectif: 25 employés",
+    "Contact: +33 4 75 82 16 42, contact@agencenile.com"
+  ],
+  "extraction_summary": {
+    "total_found": 0,
+    "main_company_info": {
+      "address": "13 Rue Julien Veyrenc, 26000 Valence, France",
+      "revenue": "2.5M EUR (2023)",
+      "employees": "25",
+      "phone": "+33 4 75 82 16 42",
+      "email": "contact@agencenile.com"
+    },
+    "methodology_used": [
+      "Recherche Perplexity - site officiel",
+      "Page Contact agencenile.com",
+      "Registre Infogreffe"
+    ]
+  },
+  "citations": [
+    {
+      "url": "https://www.agencenile.com/contact",
+      "title": "Page Contact Agence Nile"
+    }
+  ]
+}
+```
 
----
+## Contraintes de sortie
+- Respect absolu de la structure et des champs JSON attendus.
+- N’invente aucune URL ni information manquante.
+- Vérifie l’admissibilité de chaque filiale (ville réelle, sources valides, site web renseigné).
+- Inclus systématiquement tous les champs requis.
 
-## PRIORITÉS POUR COMMERCIAUX
+**Notes importantes :**
+- Si certains champs sont absents (site web, adresses), ajoute une note dans `methodology_notes`.
+- Tous les objets doivent inclure toutes les clés du schéma explicitement, même si la valeur est null.
+- Le format JSON doit être strict : pas de commentaires, aucune clé/valeur supplémentaire.
 
-1. 🎯 **QUANTITÉ** : Maximum de points de contact
-2. 🌍 **GÉOGRAPHIE** : Où sont les entités
-3. 🌐 **SITE WEB** : Pour comprendre l'offre
-4. 📞 **CONTACT** : Téléphone/email si disponibles
-5. ✅ **TRAÇABILITÉ** : Sources documentées
-
-Ne sois PAS restrictif. Donne aux commerciaux le maximum de pistes pour prospecter le groupe.
 """
 
+# Configuration OpenAI GPT-4
+openai_client = AsyncOpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+)
 
-# ----------------------------- #
-#        Construction Agent     #
-# ----------------------------- #
+gpt4_llm = OpenAIChatCompletionsModel(
+    model="gpt-4o",  # ou "gpt-4-turbo-preview"
+    openai_client=openai_client,
+)
 
+
+# Schéma de sortie - selon la doc OpenAI Agents SDK
 subsidiary_report_schema = AgentOutputSchema(SubsidiaryReport, strict_json_schema=True)
 
-# ----------------------------- #
-#        Agent Final            #
-# ----------------------------- #
 
-# Configuration Perplexity selon le tutoriel Medium
-perplexity_client = AsyncOpenAI(
-    api_key=os.getenv("PERPLEXITY_API_KEY"),
-    base_url="https://api.perplexity.ai",
-)
-# LLM Chat Completions branché sur Sonar
-sonar_llm = OpenAIChatCompletionsModel(
-    model="sonar-pro",  # Modèle économique + prompt amélioré pour coordonnées GPS
-    openai_client=perplexity_client,
-)
+# Agent Cartographe (Structuration) - Exporté comme subsidiary_extractor
 subsidiary_extractor = Agent(
     name="🗺️ Cartographe",
-    instructions=SUBSIDIARY_PROMPT,
-    tools=[],  # Sonar n'a pas besoin d'outils - recherche web intégrée
+    instructions=CARTOGRAPHE_PROMPT,
+    tools=[research_subsidiaries_with_perplexity],  # Outil de recherche
     output_type=subsidiary_report_schema,
-    model=sonar_llm,  # Test Perplexity Sonar - spécialisé recherche web
+    model=gpt4_llm,
     model_settings=ModelSettings(
         temperature=0.0,
-        max_tokens=3200,
-        extra_body={
-            # Mode recherche approfondie - plus de sources trouvées
-            "search_context_size": "high",
-            },
-    )
-    # Configuration selon le tutoriel Medium pour intégrer Perplexity
-    # Utilise l'API Chat Completions compatible OpenAI avec Perplexity
+        max_tokens=4000,
+    ),
 )
+
+
+# ==========================================
+#   WRAPPER AVEC MÉTRIQUES DE PERFORMANCE
+# ==========================================
+
+async def run_cartographe_with_metrics(company_context: Any, session_id: str = None) -> Dict[str, Any]:
+    """
+    Exécute l'agent Cartographe avec métriques de performance en temps réel.
+    
+    Args:
+        company_context: Contexte de l'entreprise (dict avec company_name, sector, activities) ou string
+        session_id: ID de session pour le suivi temps réel
+        
+    Returns:
+        Dict contenant les résultats et métriques de performance
+    """
+    # Gérer à la fois dict et string pour rétrocompatibilité
+    if isinstance(company_context, dict):
+        company_name = company_context.get("company_name", str(company_context))
+        input_data = json.dumps(company_context, ensure_ascii=False)
+    else:
+        company_name = str(company_context)
+        input_data = company_name
+    
+    # Démarrer les métriques
+    agent_metrics = metrics_collector.start_agent("🗺️ Cartographe", session_id or "default")
+    
+    # Démarrer le suivi temps réel
+    from status.manager import status_manager
+    real_time_tracker = RealTimeTracker(status_manager)
+    
+    try:
+        # Démarrer le suivi temps réel en arrière-plan
+        tracking_task = asyncio.create_task(
+            real_time_tracker.track_agent_realtime("🗺️ Cartographe", session_id or "default", agent_metrics)
+        )
+        
+        # Étape 1: Initialisation
+        init_step = agent_metrics.add_step("Initialisation")
+        logger.info(f"🗺️ Début de cartographie pour: {company_name}")
+        init_step.finish(MetricStatus.COMPLETED, {"company_name": company_name})
+        
+        # Étape 2: Recherche Perplexity
+        research_step = agent_metrics.add_step("Recherche Perplexity")
+        research_step.status = MetricStatus.TOOL_CALLING
+        
+        # Exécution de l'agent avec suivi des étapes
+        from agents import Runner
+        result = await Runner.run(
+            subsidiary_extractor, 
+            input_data, 
+            max_turns=3
+        )
+        
+        research_step.finish(MetricStatus.COMPLETED, {"research_completed": True})
+        
+        # Étape 3: Structuration des données
+        struct_step = agent_metrics.add_step("Structuration des données")
+        struct_step.status = MetricStatus.PROCESSING
+        
+        # Extraction des métriques - selon la doc OpenAI Agents SDK
+        if hasattr(result, 'final_output') and result.final_output:
+            output_data = result.final_output
+            
+            # Selon la doc OpenAI Agents SDK, final_output peut être :
+            # 1. Un objet Pydantic directement
+            # 2. Un dictionnaire
+            # 3. Une chaîne JSON
+            
+            if hasattr(output_data, 'model_dump'):
+                # Cas 1: Objet Pydantic (SubsidiaryReport)
+                try:
+                    output_data = output_data.model_dump()
+                    logger.info(f"✅ Objet Pydantic converti en dictionnaire pour {company_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Impossible de convertir l'objet Pydantic pour {company_name}: {e}")
+                    output_data = None
+            elif isinstance(output_data, dict):
+                # Cas 2: Dictionnaire déjà structuré
+                logger.info(f"✅ Données déjà en format dictionnaire pour {company_name}")
+            elif isinstance(output_data, str):
+                # Cas 3: Chaîne JSON à parser
+                try:
+                    output_data = json.loads(output_data)
+                    logger.info(f"✅ JSON parsé en dictionnaire pour {company_name}")
+                except json.JSONDecodeError:
+                    logger.warning(f"⚠️ Impossible de parser le JSON pour {company_name}")
+                    output_data = None
+            else:
+                logger.warning(f"⚠️ Format de sortie inattendu pour {company_name}: {type(output_data)}")
+                output_data = None
+            
+            if isinstance(output_data, dict):
+                subsidiaries_count = len(output_data.get('subsidiaries', []))
+                methodology_notes = output_data.get('methodology_notes', [])
+                citations_count = len(output_data.get('citations', []))
+                
+                # Détection d'erreurs dans les notes
+                has_errors = any('erreur' in note.lower() or 'error' in note.lower() 
+                               for note in methodology_notes)
+                
+                # Calcul du score de confiance
+                confidence_score = 0.9 if not has_errors and subsidiaries_count > 0 else 0.3
+                
+                # Métriques de qualité
+                agent_metrics.quality_metrics = {
+                    "subsidiaries_found": subsidiaries_count,
+                    "citations_count": citations_count,
+                    "confidence_score": confidence_score,
+                    "has_errors": has_errors,
+                    "methodology_notes_count": len(methodology_notes)
+                }
+                
+                # Métriques de performance
+                agent_metrics.performance_metrics = {
+                    "total_duration_ms": int((time.time() - agent_metrics.start_time) * 1000),
+                    "steps_completed": len(agent_metrics.steps),
+                    "success_rate": 1.0 if not has_errors else 0.0
+                }
+                
+                struct_step.finish(MetricStatus.COMPLETED, {
+                    "subsidiaries_count": subsidiaries_count,
+                    "citations_count": citations_count,
+                    "confidence_score": confidence_score
+                })
+                
+                # Finalisation
+                final_step = agent_metrics.add_step("Finalisation")
+                final_step.finish(MetricStatus.COMPLETED)
+                
+                # Terminer les métriques
+                agent_metrics.finish(MetricStatus.COMPLETED if not has_errors else MetricStatus.ERROR)
+                
+                # Annuler le suivi temps réel et envoyer les métriques finales
+                tracking_task.cancel()
+                try:
+                    await tracking_task
+                except asyncio.CancelledError:
+                    pass
+                
+                await real_time_tracker.send_final_metrics("🗺️ Cartographe", session_id or "default", agent_metrics)
+                
+                logger.info(f"✅ Cartographie terminée pour {company_name}: {subsidiaries_count} filiales, {agent_metrics.total_duration_ms}ms")
+                
+                return {
+                    "result": output_data,
+                    "status": "success" if not has_errors else "error",
+                    "duration_ms": agent_metrics.total_duration_ms,
+                    "subsidiaries_count": subsidiaries_count,
+                    "has_errors": has_errors,
+                    "methodology_notes": methodology_notes,
+                    "metrics": agent_metrics.to_dict()
+                }
+            else:
+                # Cas où final_output n'est pas un dict ou est None après parsing
+                struct_step.finish(MetricStatus.COMPLETED, {"output_type": type(output_data).__name__ if output_data else "None"})
+                
+                # Finalisation
+                final_step = agent_metrics.add_step("Finalisation")
+                final_step.finish(MetricStatus.COMPLETED)
+                
+                # Terminer les métriques avec succès (on a un résultat, même si format inattendu)
+                agent_metrics.finish(MetricStatus.COMPLETED)
+                
+                # Annuler le suivi temps réel et envoyer les métriques finales
+                tracking_task.cancel()
+                try:
+                    await tracking_task
+                except asyncio.CancelledError:
+                    pass
+                
+                await real_time_tracker.send_final_metrics("🗺️ Cartographe", session_id or "default", agent_metrics)
+                
+                if output_data is None:
+                    logger.info(f"ℹ️ Aucune donnée parsée pour {company_name} - format OpenAI Agents SDK standard")
+                else:
+                    logger.warning(f"⚠️ Format de sortie inattendu pour {company_name}: {type(output_data).__name__}")
+                
+                return {
+                    "result": result.final_output,
+                    "status": "success",
+                    "duration_ms": agent_metrics.total_duration_ms,
+                    "subsidiaries_count": 0,
+                    "has_errors": False,
+                    "methodology_notes": ["Format de sortie traité avec succès"],
+                    "metrics": agent_metrics.to_dict()
+                }
+        else:
+            struct_step.finish(MetricStatus.ERROR, {"error": "Pas de résultat final"})
+            agent_metrics.finish(MetricStatus.ERROR, "Pas de résultat final")
+            
+            # Annuler le suivi temps réel et envoyer les métriques finales
+            tracking_task.cancel()
+            try:
+                await tracking_task
+            except asyncio.CancelledError:
+                pass
+            
+            await real_time_tracker.send_final_metrics("🗺️ Cartographe", session_id or "default", agent_metrics)
+            
+            logger.error(f"❌ Pas de résultat final pour {company_name}")
+            return {
+                "result": None,
+                "status": "error",
+                "duration_ms": agent_metrics.total_duration_ms,
+                "subsidiaries_count": 0,
+                "has_errors": True,
+                "methodology_notes": ["Pas de résultat final"],
+                "metrics": agent_metrics.to_dict()
+            }
+            
+    except Exception as e:
+        # Marquer l'étape en erreur
+        current_step = agent_metrics.get_current_step()
+        if current_step:
+            current_step.finish(MetricStatus.ERROR, {"error": str(e)})
+        
+        agent_metrics.finish(MetricStatus.ERROR, str(e))
+        
+        # Annuler le suivi temps réel et envoyer les métriques finales
+        tracking_task.cancel()
+        try:
+            await tracking_task
+        except asyncio.CancelledError:
+            pass
+        
+        await real_time_tracker.send_final_metrics("🗺️ Cartographe", session_id or "default", agent_metrics)
+        
+        logger.error(f"❌ Erreur lors de la cartographie pour {company_name}: {str(e)}", exc_info=True)
+        
+        return {
+            "result": None,
+            "status": "error",
+            "duration_ms": agent_metrics.total_duration_ms,
+            "subsidiaries_count": 0,
+            "has_errors": True,
+            "methodology_notes": [f"Erreur d'exécution: {str(e)}"],
+            "error": str(e),
+            "metrics": agent_metrics.to_dict()
+        }

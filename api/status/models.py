@@ -11,14 +11,19 @@ from dataclasses import dataclass
 class AgentStatus(str, Enum):
     """États possibles d'un agent"""
 
+    WAITING = "waiting"           # En attente de démarrage
+    INITIALIZING = "initializing" # Initialisation
+    RUNNING = "running"           # En cours d'exécution
+    FINALIZING = "finalizing"     # Finalisation
+    COMPLETED = "completed"       # Terminé
+    ERROR = "error"              # Erreur
+    
+    # États dépréciés (pour compatibilité)
     IDLE = "idle"
-    INITIALIZING = "initializing"
     SEARCHING = "searching"
     EXTRACTING = "extracting"
     ANALYZING = "analyzing"
     VALIDATING = "validating"
-    COMPLETED = "completed"
-    ERROR = "error"
 
 
 class DetailedAgentStatus(str, Enum):

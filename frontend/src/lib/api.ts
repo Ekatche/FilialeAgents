@@ -52,6 +52,8 @@ export interface CompanyData {
   revenue_recent?: string | null;
   employees?: string | null;
   founded_year?: number | null;
+  phone?: string | null;
+  email?: string | null;
   subsidiaries_details: SubsidiaryDetail[];
   sources: SourceReference[];
   methodology_notes?: string[] | null;

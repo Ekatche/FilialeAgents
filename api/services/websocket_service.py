@@ -46,18 +46,23 @@ async def handle_websocket_connection(websocket: WebSocket, session_id: str) -> 
             initial_state = json.dumps(progress.to_dict())
             await websocket.send_text(initial_state)
 
-        # Boucle d'écoute des mises à jour
+        # Boucle d'écoute des mises à jour avec heartbeat amélioré
+        last_ping = datetime.now()
         while True:
             try:
-                # Attendre une mise à jour avec timeout
-                update = await asyncio.wait_for(queue.get(), timeout=30.0)
+                # Attendre une mise à jour avec timeout de 25s (< 30s pour envoyer ping avant timeout Nginx)
+                update = await asyncio.wait_for(queue.get(), timeout=25.0)
                 await websocket.send_text(update)
             except asyncio.TimeoutError:
-                # Envoyer un ping pour maintenir la connexion
-                ping_message = json.dumps(
-                    {"type": "ping", "timestamp": datetime.now().isoformat()}
-                )
-                await websocket.send_text(ping_message)
+                # Envoyer un ping pour maintenir la connexion (toutes les 25s si pas d'activité)
+                now = datetime.now()
+                if (now - last_ping).total_seconds() >= 25:
+                    ping_message = json.dumps(
+                        {"type": "ping", "timestamp": now.isoformat()}
+                    )
+                    await websocket.send_text(ping_message)
+                    last_ping = now
+                    logger.debug(f"🏓 Ping envoyé pour session: {session_id}")
 
     except WebSocketDisconnect:
         if session_id.startswith("temp-"):

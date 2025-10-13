@@ -8,6 +8,7 @@ the execution of all agents in the extraction pipeline.
 import logging
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from ..models import CompanyInfo
@@ -47,6 +48,12 @@ def _resolve_target_entity(raw_input: str, analyzer_data: Dict[str, Any]) -> str
     """
     Résout l'entité cible à partir des données d'analyse.
     
+    Logique de sélection :
+    1. Si l'entreprise est une filiale (relationship="subsidiary") ET qu'une parent_company est identifiée
+       → Utiliser la parent_company comme target_entity
+    2. Sinon, utiliser l'entité légale identifiée par l'Éclaireur
+    3. Fallback sur l'entrée brute si aucune donnée d'analyse
+    
     Args:
         raw_input: Entrée brute de l'utilisateur
         analyzer_data: Données de l'analyseur d'entreprise
@@ -57,12 +64,26 @@ def _resolve_target_entity(raw_input: str, analyzer_data: Dict[str, Any]) -> str
     if not analyzer_data:
         return raw_input
     
-    # Priorité aux données d'analyse
+    # Vérifier si c'est une filiale avec une société mère identifiée
+    relationship = analyzer_data.get("relationship")
+    parent_company = analyzer_data.get("parent_company")
+    
+    if relationship == "subsidiary" and parent_company:
+        logger.info(
+            "🎯 Entité filiale détectée: %s → Cible changée vers société mère: %s",
+            analyzer_data.get("entity_legal_name", raw_input),
+            parent_company
+        )
+        return parent_company
+    
+    # Priorité aux données d'analyse (entité légale)
     entity_name = analyzer_data.get("entity_legal_name")
     if entity_name:
+        logger.info("🎯 Entité cible résolue: %s", entity_name)
         return entity_name
     
     # Fallback sur l'entrée brute
+    logger.info("🎯 Fallback sur entrée brute: %s", raw_input)
     return raw_input
 
 
@@ -76,8 +97,21 @@ def _should_run_meta_validation(state: ExtractionState) -> bool:
     Returns:
         True si la validation méta doit être exécutée
     """
-    # Exécuter la validation méta si on a des filiales
-    return bool(state.subs_report and state.subs_report.get("subsidiaries"))
+    # Exécuter la validation méta si on a un rapport de filiales (même vide)
+    if not state.subs_report:
+        return False
+    
+    # Si c'est une chaîne, la parser
+    if isinstance(state.subs_report, str):
+        try:
+            import json
+            state.subs_report = json.loads(state.subs_report)
+        except (json.JSONDecodeError, TypeError):
+            return False
+    
+    # Vérifier si on a un rapport de filiales valide (même avec liste vide)
+    # Le Superviseur doit valider la cohérence même quand il n'y a pas de filiales
+    return isinstance(state.subs_report, dict) and "subsidiaries" in state.subs_report
 
 
 async def orchestrate_extraction(
@@ -143,11 +177,28 @@ async def orchestrate_extraction(
         if restructured_company_info:
             # Utiliser les données restructurées directement
             try:
-                validated = CompanyInfo.model_validate(
+                validated_model = CompanyInfo.model_validate(
                     restructured_company_info
-                ).model_dump()
+                )
+
+                # Enrichir les métadonnées avant de retourner
+                from ..models import ExtractionMetadata
+                
+                metadata_dict = (
+                    validated_model.extraction_metadata.model_dump()
+                    if validated_model.extraction_metadata
+                    else {}
+                )
+                metadata_dict.setdefault("session_id", session_id)
+                
+                # Créer un objet ExtractionMetadata valide
+                validated_model.extraction_metadata = ExtractionMetadata(**metadata_dict)
+
+                if not validated_model.extraction_date:
+                    validated_model.extraction_date = datetime.now(timezone.utc).isoformat()
+
                 logger.info("✅ Extraction terminée avec succès pour session=%s", session_id)
-                return validated
+                return validated_model.model_dump()
             except ValidationError as exc:
                 logger.error(
                     "❌ Erreur de validation CompanyInfo pour session=%s: %s",

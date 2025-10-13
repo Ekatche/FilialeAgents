@@ -4,6 +4,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  
+  // Configuration des métadonnées
+  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8012'),
 
   async rewrites() {
     return [

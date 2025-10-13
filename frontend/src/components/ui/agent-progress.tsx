@@ -96,20 +96,27 @@ const getAgentIcon = (
 // Couleurs pour les badges de statut
 const getStatusColor = (status: string) => {
   switch (status) {
-    case "idle":
+    case "waiting":
       return "bg-gray-100 text-gray-700";
     case "initializing":
       return "bg-blue-100 text-blue-700";
+    case "running":
+      return "bg-yellow-100 text-yellow-700";
+    case "finalizing":
+      return "bg-orange-100 text-orange-700";
+    case "completed":
+      return "bg-green-100 text-green-700";
+    case "error":
+      return "bg-red-100 text-red-700";
+    // États dépréciés (pour compatibilité)
+    case "idle":
+      return "bg-gray-100 text-gray-700";
     case "searching":
     case "extracting":
     case "analyzing":
       return "bg-yellow-100 text-yellow-700";
     case "validating":
       return "bg-purple-100 text-purple-700";
-    case "completed":
-      return "bg-green-100 text-green-700";
-    case "error":
-      return "bg-red-100 text-red-700";
     default:
       return "bg-gray-100 text-gray-700";
   }
@@ -119,6 +126,9 @@ const getStatusColor = (status: string) => {
 const AgentCard = React.memo(
   ({ agent, index }: { agent: AgentState; index: number }) => {
     const isActive = [
+      "running",
+      "finalizing",
+      // États dépréciés (pour compatibilité)
       "searching",
       "extracting",
       "analyzing",
@@ -181,7 +191,7 @@ const AgentCard = React.memo(
               <div className="text-xs text-gray-500">
                 {agent.performance_metrics.elapsed_time && (
                   <div className="inline-block mr-3">
-                    ⏱️ {Math.round(agent.performance_metrics.elapsed_time)}s
+                    ⏱️ {Math.round(agent.performance_metrics.elapsed_time / 1000)}s
                   </div>
                 )}
                 {agent.performance_metrics.steps_remaining !== undefined && (
@@ -197,16 +207,12 @@ const AgentCard = React.memo(
         {/* Message de l'agent optimisé */}
         <p className="text-sm text-gray-600 mb-2">{agent.message}</p>
 
-        {/* Barre de progression individuelle avec animation optimisée */}
+        {/* Barre de progression individuelle avec animation granulaire */}
         <div className="space-y-1">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: "100%" }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
-          >
+          <div className="relative">
             <Progress
               value={(agent.progress || 0) * 100}
-              className={`h-2 ${
+              className={`h-2 transition-all duration-300 ease-out ${
                 isActive
                   ? "bg-blue-100"
                   : isCompleted
@@ -216,18 +222,26 @@ const AgentCard = React.memo(
                   : "bg-gray-100"
               }`}
             />
-          </motion.div>
+            {/* Indicateur de progression granulaire */}
+            {agent.current_step && agent.total_steps && (
+              <div className="absolute top-0 right-0 text-xs text-gray-500 bg-white px-1 rounded">
+                {agent.current_step}/{agent.total_steps}
+              </div>
+            )}
+          </div>
           <div className="flex justify-between items-center text-xs text-gray-500">
             <motion.span
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
+              key={agent.message} // Force re-render sur changement de message
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
             >
-              {agent.progress === 0
-                ? "En attente"
-                : agent.progress === 1
-                ? "Terminé"
-                : "En cours"}
+              {agent.step_name || agent.message || 
+                (agent.progress === 0
+                  ? "En attente"
+                  : agent.progress === 1
+                  ? "Terminé"
+                  : "En cours")}
             </motion.span>
             {agent.error_message && (
               <motion.span
@@ -239,6 +253,50 @@ const AgentCard = React.memo(
               </motion.span>
             )}
           </div>
+      {/* Affichage des métriques de performance détaillées */}
+      {agent.performance_metrics && (
+        <div className="text-xs text-gray-400 mt-1 space-y-1">
+          {/* Temps d'exécution */}
+          {agent.performance_metrics.elapsed_time && (
+            <div className="flex items-center gap-2">
+              <span>⏱️ {Math.round(agent.performance_metrics.elapsed_time / 1000)}s</span>
+              {(agent.performance_metrics as any).quality_score && (
+                <span className="text-green-600">📊 {Math.round((agent.performance_metrics as any).quality_score * 100)}%</span>
+              )}
+            </div>
+          )}
+          
+          {/* Progression des étapes */}
+          {agent.performance_metrics.steps_completed && (agent.performance_metrics as any).total_steps && (
+            <div className="flex items-center gap-2">
+              <span>✅ {agent.performance_metrics.steps_completed}/{(agent.performance_metrics as any).total_steps} étapes</span>
+              {(agent.performance_metrics as any).items_processed && (
+                <span className="text-blue-600">🏢 {(agent.performance_metrics as any).items_processed} éléments</span>
+              )}
+            </div>
+          )}
+          
+          {/* Métriques de qualité spécifiques */}
+          {(agent.performance_metrics as any).subsidiaries_found && (
+            <div className="text-blue-600">
+              🗺️ {(agent.performance_metrics as any).subsidiaries_found} filiales trouvées
+            </div>
+          )}
+          
+          {(agent.performance_metrics as any).citations_count && (
+            <div className="text-purple-600">
+              📚 {(agent.performance_metrics as any).citations_count} sources
+            </div>
+          )}
+          
+          {/* Indicateur d'erreur */}
+          {(agent.performance_metrics as any).error_rate > 0 && (
+            <div className="text-red-600">
+              ⚠️ Taux d'erreur: {Math.round((agent.performance_metrics as any).error_rate * 100)}%
+            </div>
+          )}
+        </div>
+      )}
         </div>
       </motion.div>
     );
@@ -380,9 +438,12 @@ export function AgentProgress({
             const data = JSON.parse(event.data);
             console.log("📋 [DEBUG] Données parsées:", data);
 
-            // Ignorer les messages de ping
+            // Répondre aux messages de ping avec pong
             if (data && data.type === "ping") {
-              console.log("🏓 [DEBUG] Message ping ignoré");
+              console.log("🏓 [DEBUG] Ping reçu, envoi pong...");
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "pong", timestamp: new Date().toISOString() }));
+              }
               return;
             }
 
@@ -442,7 +503,10 @@ export function AgentProgress({
               if (ws) {
                 ws.close(1000, "Extraction terminée");
               }
-              stableOnComplete();
+              // Attendre un délai pour que les résultats soient stockés côté backend
+              setTimeout(() => {
+                stableOnComplete();
+              }, 2000); // 2 secondes de délai
             } else if (overallStatus === "error") {
               console.log("❌ [DEBUG] Erreur détectée");
               // Fermer le WebSocket car il y a une erreur

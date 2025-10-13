@@ -30,6 +30,27 @@ class ExtractionState:
     def __post_init__(self):
         if self.warnings is None:
             self.warnings = []
+    
+    def log(self, agent_name: str, data: Dict[str, Any]):
+        """
+        Enregistre les données d'un agent dans l'état.
+        
+        Args:
+            agent_name: Nom de l'agent (analyzer, information_extractor, subsidiary_extractor, meta_validator)
+            data: Données à enregistrer
+        """
+        if agent_name == "analyzer" or agent_name == "company_analyzer":
+            self.analyzer_raw = data
+        elif agent_name == "information_extractor":
+            self.info_card = data
+            self.info_raw = data
+        elif agent_name == "subsidiary_extractor":
+            self.subs_report = data
+            self.subs_raw = data
+        elif agent_name == "meta_validator":
+            self.meta_report = data
+        else:
+            logger.warning(f"Agent inconnu pour log: {agent_name}")
 
 
 def merge_sources(
@@ -109,7 +130,7 @@ def collect_sources(
     return sources
 
 
-def process_subsidiary_data(
+async def process_subsidiary_data(
     subsidiary: Dict[str, Any],
     *,
     fallback_sources: Optional[List[str]] = None
@@ -147,7 +168,22 @@ def process_subsidiary_data(
     if not sources and fallback_sources:
         sources = fallback_sources[:2]  # Limiter à 2 sources max
     
-    processed["sources"] = sources
+    # Filtrer les sources par accessibilité
+    from .source_filter import filter_sources_comprehensive
+    filtered_sources, removed_urls = await filter_sources_comprehensive(
+        sources,
+        session_id="subsidiary_processing",
+        agent_name="Subsidiary Processor",
+        max_age_months=24,  # Sources de moins de 2 ans
+        max_sources=5       # Maximum 5 sources par filiale
+    )
+    processed["sources"] = filtered_sources
+    
+    if removed_urls:
+        logger.debug(
+            "🔍 Sources filiale filtrées: %d URLs inaccessibles supprimées pour %s",
+            len(removed_urls), subsidiary.get("name", "filiale inconnue")
+        )
     
     # Traitement du siège social
     headquarters = subsidiary.get("headquarters")
@@ -166,7 +202,7 @@ def process_subsidiary_data(
     return processed
 
 
-def build_company_info(
+async def build_company_info(
     state: ExtractionState,
     analyzer_data: Dict[str, Any],
     info_data: Dict[str, Any],
@@ -251,16 +287,42 @@ def build_company_info(
     logger.info(
         "🔍 DEBUG company_info sources after merge: %s", company_info["sources"]
     )
+    
+    # Filtrer les sources par accessibilité et qualité
+    from .source_filter import filter_sources_comprehensive
+    filtered_sources, removed_urls = await filter_sources_comprehensive(
+        company_info["sources"],
+        session_id=state.session_id,
+        agent_name="Data Processor",
+        max_age_months=24,  # Sources de moins de 2 ans
+        max_sources=10      # Maximum 10 sources
+    )
+    company_info["sources"] = filtered_sources
+    
+    if removed_urls:
+        logger.info(
+            "🔍 Sources filtrées: %d URLs inaccessibles supprimées pour session %s",
+            len(removed_urls), state.session_id
+        )
+        logger.debug("URLs supprimées: %s", removed_urls)
 
     # Traitement des filiales
     details = []
     if state.subs_report and state.subs_report.get("subsidiaries"):
         for sub in state.subs_report["subsidiaries"]:
-            processed_sub = process_subsidiary_data(
+            processed_sub = await process_subsidiary_data(
                 sub, fallback_sources=company_info.get("sources", [])
             )
             if processed_sub:
                 details.append(processed_sub)
+    
+    # Filtrer les filiales non corrélées selon le rapport du Superviseur
+    if state.meta_report:
+        details = filter_non_correlated_subsidiaries(details, state.meta_report)
+        
+        # Ajouter le résumé de cohérence métier
+        business_summary = get_business_coherence_summary(state.meta_report)
+        company_info["business_coherence"] = business_summary
     
     company_info["subsidiaries_details"] = details
     company_info["total_subsidiaries"] = len(details)
@@ -298,3 +360,89 @@ def build_company_info(
         company_info["quality_indicators"] = quality
 
     return company_info
+
+
+def filter_non_correlated_subsidiaries(
+    subsidiaries: List[Dict[str, Any]], 
+    meta_report: Optional[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Filtre les filiales non corrélées au cœur de métier selon le rapport du Superviseur.
+    
+    Args:
+        subsidiaries: Liste des filiales à filtrer
+        meta_report: Rapport du Superviseur contenant les informations de corrélation
+        
+    Returns:
+        Liste des filiales corrélées uniquement
+    """
+    if not meta_report or not subsidiaries:
+        return subsidiaries
+    
+    # Récupérer la liste des filiales exclues du rapport du Superviseur
+    excluded_subsidiaries = meta_report.get("excluded_subsidiaries", [])
+    
+    if not excluded_subsidiaries:
+        logger.info("Aucune filiale non corrélée détectée par le Superviseur")
+        return subsidiaries
+    
+    # Filtrer les filiales
+    correlated_subsidiaries = []
+    excluded_count = 0
+    
+    for subsidiary in subsidiaries:
+        subsidiary_name = subsidiary.get("name", "").strip()
+        
+        # Vérifier si cette filiale est dans la liste des exclues
+        if subsidiary_name in excluded_subsidiaries:
+            excluded_count += 1
+            logger.info("🚫 Filiale exclue (non corrélée): %s", subsidiary_name)
+            continue
+        
+        correlated_subsidiaries.append(subsidiary)
+    
+    logger.info("📊 Filtrage des filiales: %d corrélées, %d exclues", 
+                len(correlated_subsidiaries), excluded_count)
+    
+    return correlated_subsidiaries
+
+
+def get_business_coherence_summary(meta_report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Extrait un résumé de la cohérence métier du rapport du Superviseur.
+    
+    Args:
+        meta_report: Rapport du Superviseur
+        
+    Returns:
+        Résumé de la cohérence métier
+    """
+    if not meta_report:
+        return {
+            "business_coherence_score": 0.0,
+            "excluded_count": 0,
+            "total_subsidiaries": 0,
+            "correlation_details": []
+        }
+    
+    subsidiaries_confidence = meta_report.get("subsidiaries_confidence", [])
+    excluded_subsidiaries = meta_report.get("excluded_subsidiaries", [])
+    business_coherence_score = meta_report.get("business_coherence_score", 0.0)
+    
+    # Extraire les détails de corrélation
+    correlation_details = []
+    for sub_conf in subsidiaries_confidence:
+        correlation_details.append({
+            "name": sub_conf.get("subsidiary_name", ""),
+            "correlation": sub_conf.get("business_correlation", 0.0),
+            "should_exclude": sub_conf.get("should_exclude", False),
+            "rationale": sub_conf.get("business_rationale", [])
+        })
+    
+    return {
+        "business_coherence_score": business_coherence_score,
+        "excluded_count": len(excluded_subsidiaries),
+        "total_subsidiaries": len(subsidiaries_confidence),
+        "correlation_details": correlation_details,
+        "excluded_subsidiaries": excluded_subsidiaries
+    }

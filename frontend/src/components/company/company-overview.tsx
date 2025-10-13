@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { motion } from "framer-motion";
 import {
   Building2,
@@ -270,10 +271,51 @@ export function CompanyOverview({ company }: CompanyOverviewProps) {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {company.sources.map((source, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
+                    <a
+                      key={index}
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:text-blue-700 transition-colors duration-200"
+                    >
+                      <Globe className="w-3 h-3" />
                       {source.title}
-                    </Badge>
+                    </a>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {(company.phone || company.email) && (
+              <div className="mt-4">
+                <p className="text-sm font-medium text-muted-foreground mb-2">
+                  Informations de contact
+                </p>
+                <div className="space-y-2">
+                  {company.phone && (
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-100 rounded-md text-sm text-gray-700">
+                      <Globe className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <span className="font-medium">Téléphone :</span>
+                      <a
+                        href={`tel:${company.phone}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {company.phone}
+                      </a>
+                    </div>
+                  )}
+                  {company.email && (
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-100 rounded-md text-sm text-gray-700">
+                      <Globe className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <span className="font-medium">Email :</span>
+                      <a
+                        href={`mailto:${company.email}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {company.email}
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
