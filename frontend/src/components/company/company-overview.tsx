@@ -269,18 +269,36 @@ export function CompanyOverview({ company }: CompanyOverviewProps) {
                 <p className="text-sm font-medium text-muted-foreground mb-2">
                   Sources de données
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                   {company.sources.map((source, index) => (
-                    <a
-                      key={index}
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:text-blue-700 transition-colors duration-200"
-                    >
-                      <Globe className="w-3 h-3" />
-                      {source.title}
-                    </a>
+                    <div key={index} className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-gray-600">
+                          {source.title}
+                        </span>
+                        <Badge
+                          variant={
+                            source.tier === "official"
+                              ? "default"
+                              : source.tier === "financial_media"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="text-xs"
+                        >
+                          {source.tier || "autre"}
+                        </Badge>
+                      </div>
+                      {source.url && (
+                        <button
+                          onClick={() => window.open(source.url, "_blank")}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:text-blue-700 transition-colors duration-200"
+                        >
+                          <Globe className="w-3 h-3" />
+                          Ouvrir la source
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

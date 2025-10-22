@@ -1,0 +1,111 @@
+---
+description: Règles Cursor — stabilité, hygiène tests/Jupyter, qualité & sécurité
+alwaysApply: true
+---
+
+# 🧭 PRINCIPES
+- Priorité à la **stabilité** et au périmètre minimal des changements.
+- Toujours **lire le contexte** (README, docs/, ADR, commentaires, scripts) **avant** d’implémenter.
+- **Citer les sources** (chemin:ligne) qui justifient chaque décision technique.
+- **Jamais** de secrets / URLs prod / API keys en dur. Configuration uniquement via variables d’environnement.
+
+# ★ Mode : Plan → Validation → Exécution  
+Tout changement doit débuter par une **proposition de plan** (fichiers concernés, diff attendu, risques, tests).  
+L’agent ne doit **pas passer à l’implémentation** sans ton **accord explicite**.  
+Avant d’implémenter :  
+- l’agent présente le plan complet,  
+- tu donnes ton **avis** (OK pour exécuter / modifications demandées),  
+- puis l’agent **exécute**.  
+À la fin : l’agent rapporte pour **validation finale** avant merge.
+
+# 📋 Check-liste de validation utilisateur (à présenter avant exécution)  
+- [ ] Ai-je bien compris le périmètre exact des changements demandés ?  
+- [ ] Le plan liste les **fichiers impactés** + un **diff échantillon** pour chacun.  
+- [ ] Les **risques** et **tests nécessaires** sont identifiés.  
+- [ ] Je confirme que **le périmètre est minimal** et qu’aucun refactor hors-scope n’est proposé.  
+- [ ] Le plan mentionne clairement les **fichiers non modifiés** (pour éviter les effets collatéraux).  
+- [ ] Les conventions (tests, Jupyter, logs, variables env) sont respectées.  
+- [ ] JE DONNE MON AVIS (OK ou demander modification) **avant que l’agent implémente**.  
+- [ ] Je donne explicitement mon **accord « OK, exécuter »** pour passer à l’implémentation.
+
+# 📚 CONTEXTE & SOURCES
+- Utiliser les références de forme `@workspace` pour explorer globalement ; `@file` pour cibler ; `@docs` pour référencer.
+- Avant toute écriture : lister les fichiers impactés + **diff** sur un **échantillon** ; attendre confirmation explicite.
+
+# 🔄 WORKFLOW SYSTÉMATIQUE
+1) **Analyser → Rechercher l’existant → Proposer un plan minimal** (fichiers, diff, risques, tests).  
+2) **Implémenter** l’incrément validé uniquement.  
+3) **Valider** (tests, lint/format) puis **nettoyer** (artifacts temporaires).  
+4) **Documenter** les décisions non évidentes (notes ou ADR courtes).  
+5) **Suggérer** les améliorations futures (sans implémenter).
+
+# 🎯 PORTÉE DES CHANGEMENTS
+- Limiter strictement au périmètre demandé.  
+- **INTERDIT sans validation** : refactoring hors-scope, renommages massifs, reformatage de fichiers non touchés, optimisations opportunistes.
+
+# 🧱 FICHIERS & FACTORISATION
+- **Avant de créer un fichier** : rechercher équivalents (`@workspace` / `@file`), étendre/réutiliser si possible.  
+- Créer **uniquement** si aucune structure adaptée n’existe, avec justification courte.  
+- Factoriser les duplications avérées vers helpers/services existants (ou nouveau module dédié **après** validation).
+
+# 📝 DOCUMENTATION (.md) — PRINCIPE D’ENRICHISSEMENT  
+- Avant de **créer** un nouveau fichier de documentation `.md`, **vérifier** s’il existe déjà un ou plusieurs fichiers `.md` pertinents (README, docs/…, etc).  
+- Si un fichier existe : **préférer l’enrichissement** (ajout d’informations pertinentes) plutôt que la création d’un nouveau fichier.  
+- Veiller à **ne pas surcharger** la documentation existante :  
+  - maintenir la clarté et lisibilité ;  
+  - éviter les duplications d’informations ;  
+  - découper ou référencer si l’ajout devient volumineux.  
+- Si aucun fichier pertinent n’existe après vérification exhaustive, **alors** proposer la création d’un nouveau fichier `.md`, avec justification dans le plan.
+
+# 🧪 TESTS — ASK-FIRST + AUTO-CLEAN
+- **Ne JAMAIS créer** de tests sans validation explicite.  
+- **Avant création/modif de tests**, PROPOSER :  
+  - plan de couverture (unit/contract/e2e), emplacements, conventions de noms ;  
+  - un **diff** minimal pour un fichier exemple ;  
+  - puis **attendre « OK, créer »**.  
+- **Nettoyage automatique (après exécution)** :  
+  - Supprimer uniquement les **brouillons temporaires** et sorties connues :  
+    - patterns : `*.test.tmp*`, `*.spec.tmp*`, `tests/tmp/**`, `test-output/**`, `.nyc_output/`, `coverage/`, `.pytest_cache/`, `.coverage*`  
+  - Commande à exécuter : `@terminal: npm run test:clean` (ou `make test-clean`)  
+  - Si le script n’existe pas : **proposer** de l’ajouter au projet (sans créer sans accord).  
+- **Jamais** committer de fichiers correspondant aux patterns ci-dessus.  
+- **Interdire le merge** si tests rouges : s’appuyer sur les checks CI requis (voir section Git & revue).
+
+# 📓 JUPYTER — ASK-FIRST + NO-OUTPUTS + PAIRING
+- **Ne JAMAIS** créer/modifier un `.ipynb` ou ajouter des cellules sans demande explicite.  
+- **Avant toute action notebook**, PROPOSER :  
+  - titre + chemin du fichier ;  
+  - **format “paire”** `ipynb,py:light` (Jupytext) ;  
+  - aperçu des 1–2 premières cellules ;  
+  - politique **no-outputs** (sorties retirées au commit).  
+- **Toujours** nettoyer les sorties avant commit (nbstripout).  
+- Pour toute nouvelle paire : **proposer** d’activer la synchro Jupytext (sans créer sans accord).
+
+# 🔧 QUALITÉ AUTOMATISÉE
+- Respecter le style existant ; **ne pas reformater en masse** hors périmètre.  
+- Faire tourner **lint + format** avant PR.  
+- Si manquants, **proposer** (sans imposer) :  
+  - `.editorconfig` (indentation, EOL, encodage) ;  
+  - **Prettier** (format) + **ESLint** (flat config si JS/TS) ;  
+  - hooks pré-commit (pre-commit ou Husky + lint-staged) pour ne traiter que les fichiers stagés.
+
+# ⚡ ERREURS & LOGS
+- Try/catch explicite sur opérations à risque (I/O, réseau, parsing).  
+- Messages d’erreur **actionnables** ; logs structurés (niveau + contexte).  
+- **Fail-fast** plutôt que silencieux.
+
+# 🔐 SÉCURITÉ (SHIFT-LEFT)
+- **Jamais** de secrets/credentials en dépôt.  
+- **Proposer** d’activer secret-scanning (Gitleaks ou git-secrets) en pré-commit/CI.  
+- Si ajout de variables sensibles : guider vers gestion via env/secret manager ; **jamais** les insérer dans le code ou l’historique.
+
+# 🔄 GIT & REVUE
+- **Interdit** de pousser sur `main`.  
+- **Proposer** (si absent) : Protected Branches avec **required status checks** (tests, lint), **review requise**, **CODEOWNERS** sur zones critiques.  
+- Commits : **Conventional Commits** ; versionnage **SemVer** ; changelog tenu (génération possible outillée).  
+- Revue : vérifier **design**, **fonctionnalité**, **simplicité**, **tests**, **noms**, **sécurité**.
+
+# 🚀 CURSOR — BONNES PRATIQUES
+- Toujours préciser : **périmètre exact**, fichiers cibles, sortie attendue (**diff/snippets**).  
+- Composer les `@` pour actions complexes (ex : `@workspace` + `@file` + `@terminal`).  
+- **Refuser** toute action hors-scope ; **demander confirmation** avant tout refactor global.

@@ -431,10 +431,29 @@ async def call_subsidiary_extractor(state: ExtractionState) -> Dict[str, Any]:
     """
     try:
         # Préparer le contexte avec les données du Mineur
+        analyzer_data = state.analyzer_raw if isinstance(state.analyzer_raw, dict) else {}
+        info_card = state.info_card if isinstance(state.info_card, dict) else {}
+
+        target_domain = analyzer_data.get("target_domain")
+
+        website = None
+        # Chercher une URL on-domain dans les sources du Mineur
+        for source in info_card.get("sources", []) or []:
+            url = source.get("url")
+            if url and target_domain and target_domain in url:
+                website = url
+                break
+        # Si aucune source n'a fourni d'URL exploitable, construire à partir du domaine
+        if not website and target_domain:
+            website = f"https://{target_domain.strip('/')}/"
+
         company_context = {
             "company_name": state.target_entity,
-            "sector": state.info_card.get("sector") if state.info_card else None,
-            "activities": state.info_card.get("activities") if state.info_card else None,
+            "sector": info_card.get("sector") if info_card else None,
+            "activities": info_card.get("activities") if info_card else None,
+            "context": info_card.get("context") if info_card else None,
+            "target_domain": target_domain,
+            "website": website,
         }
         
         # Exécuter l'agent avec métriques détaillées (gère ses propres métriques)

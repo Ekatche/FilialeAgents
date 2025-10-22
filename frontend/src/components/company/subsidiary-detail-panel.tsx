@@ -95,16 +95,40 @@ export function SubsidiaryDetailPanel({
                     {subsidiary.headquarters.postal_code}
                   </p>
                 )}
-                {subsidiary.headquarters.latitude &&
-                  subsidiary.headquarters.longitude && (
-                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                      <MapPin className="w-3 h-3" />
-                      <span>
-                        {subsidiary.headquarters.latitude.toFixed(4)},{" "}
-                        {subsidiary.headquarters.longitude.toFixed(4)}
-                      </span>
-                    </div>
-                  )}
+              </div>
+            </div>
+          )}
+
+          {/* Informations de contact */}
+          {(subsidiary.headquarters?.phone || subsidiary.headquarters?.email) && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium">Contact</span>
+              </div>
+              <div className="pl-6 space-y-2">
+                {subsidiary.headquarters.phone && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Téléphone:</span>
+                    <a
+                      href={`tel:${subsidiary.headquarters.phone}`}
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      {subsidiary.headquarters.phone}
+                    </a>
+                  </div>
+                )}
+                {subsidiary.headquarters.email && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Email:</span>
+                    <a
+                      href={`mailto:${subsidiary.headquarters.email}`}
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      {subsidiary.headquarters.email}
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -158,10 +182,7 @@ export function SubsidiaryDetailPanel({
               <div className="pl-6 space-y-2">
                 {subsidiary.sources.slice(0, 3).map((source, index) => (
                   <div key={index} className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-600">
-                        {source.title}
-                      </span>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge
                         variant={
                           source.tier === "official"
@@ -176,15 +197,17 @@ export function SubsidiaryDetailPanel({
                       </Badge>
                     </div>
                     {source.url && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs"
-                        onClick={() => window.open(source.url, "_blank")}
-                      >
-                        <ExternalLink className="w-3 h-3 mr-1" />
-                        Voir la source
-                      </Button>
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => window.open(source.url, "_blank")}
+                        >
+                          <ExternalLink className="w-3 h-3 mr-1" />
+                          Ouvrir la source
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}

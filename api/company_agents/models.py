@@ -106,6 +106,7 @@ class CompanyCard(BaseModel):
     revenue_recent: Optional[str] = Field(default=None, max_length=100)
     employees: Optional[str] = Field(default=None, max_length=100)
     founded_year: Optional[int] = Field(default=None, ge=1800, le=2030)
+    context: Optional[str] = Field(default=None, max_length=500, description="Contexte enrichi pour la recherche de filiales")
     sources: List[SourceRef] = Field(..., min_length=2, max_length=7)
 
 
@@ -125,7 +126,7 @@ class Subsidiary(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=50)
     email: Optional[str] = Field(default=None, max_length=100)
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    sources: List[SourceRef] = Field(..., min_length=1, max_length=2)
+    sources: List[SourceRef] = Field(..., min_length=1, max_length=10)  # Augmenté pour permettre plus de sources
 
 
 class MainCompanyInfo(BaseModel):
@@ -165,7 +166,7 @@ class SubsidiaryReport(BaseModel):
     
     parents: List[ParentRef] = Field(default_factory=list, max_length=3)
     subsidiaries: List[Subsidiary] = Field(default_factory=list, max_length=10)
-    methodology_notes: Optional[List[str]] = Field(default=None, max_length=5)
+    methodology_notes: Optional[List[str]] = Field(default=None, max_length=15)  # Augmenté pour plus de détails
     extraction_summary: Optional[ExtractionSummary] = Field(default=None)
 
 

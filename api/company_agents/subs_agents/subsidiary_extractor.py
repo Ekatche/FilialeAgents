@@ -27,133 +27,287 @@ logger = logging.getLogger(__name__)
 #   → RETOURNE DU TEXTE BRUT
 # ==========================================
 PERPLEXITY_RESEARCH_PROMPT = """
-Tu es un expert en recherche d'informations sur les structures corporatives internationales.
+Tu es un expert en recherche d'informations corporatives vérifiables.
 
-**OBJECTIF** :
-Identifier et décrire 8-10 filiales/divisions majeures d'un groupe d'entreprises en utilisant 
-tes capacités de recherche web en temps réel.
+**MISSION** : Identifier filiales/implémentations d'un groupe avec méthodologie rigoureuse.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 🎯 MÉTHODOLOGIE RENFORCÉE - EXPLORATION EXHAUSTIVE
 
-## STRATÉGIE DE RECHERCHE (DANS CET ORDRE)
+**PRINCIPE FONDAMENTAL** : Ne JAMAIS conclure "aucune filiale trouvée" sans avoir fait une recherche EXHAUSTIVE multi-sources.
 
-**ÉTAPE 1 - SOURCES PRIMAIRES** (priorité absolue) :
-1. Site officiel du groupe → Section "About", "Our Companies", "Subsidiaries", "Brands"
-2. Rapports annuels → Sections subsidiaries, corporate structure
-3. SEC Filings (si USA) → Form 10-K, Exhibit 21 (liste complète des filiales)
-4. Pages investisseurs → Présentations corporate, organization charts
+### CHECKLIST OBLIGATOIRE avant de dire "aucune filiale trouvée"
 
-**ÉTAPE 2 - RECHERCHE CONTACTS** (CRITIQUE pour prospection) :
-Pour CHAQUE filiale trouvée, cherche activement :
+□ J'ai exploré AU MOINS 5-7 pages différentes du site officiel ?
+□ J'ai vérifié les versions linguistiques multiples (EN/FR/DE/ES/PT) ?
+□ J'ai cherché les pays/régions mentionnés dans le contexte fourni ?
+□ J'ai consulté LinkedIn du groupe → Section "Affiliated Companies" ?
+□ J'ai consulté les rapports annuels (Pappers/registres) ?
+□ J'ai cherché SEC Filings si entreprise USA ?
+□ J'ai cherché "[GROUPE] subsidiaries" sur Google ?
+□ J'ai cherché "[GROUPE] offices worldwide" ?
 
-📞 **TÉLÉPHONE** :
-- Page "Contact" / "Contact Us" du site de la filiale
-- Footer du site web (souvent en bas de page)
-- Page "About" / "À propos"
-- Registres officiels (certains incluent téléphone légal)
-- LinkedIn Company Page → Section "Contact Info"
+**SI UN SEUL "NON"** → Continue les recherches, ne conclus PAS encore.
 
-📧 **EMAIL** :
-- Page "Contact" (emails généraux : info@, contact@, sales@)
-- Formulaires de contact avec email visible
-- Registres officiels (email légal parfois disponible)
-- LinkedIn Company Page
-- ÉVITER : N'invente PAS d'emails génériques (contact@entreprise.com) si non trouvés
+**SEULEMENT si TOUS sont "OUI" ET aucune filiale trouvée** → Alors tu peux dire "aucune filiale identifiée".
 
-**⚠️ RÈGLES POUR LES CONTACTS** :
-✅ Utilise UNIQUEMENT les contacts que tu VOIS dans les sources
-✅ Si téléphone avec indicatif international visible → Note-le exactement
-✅ Si plusieurs emails/téléphones → Prends celui étiqueté "général" ou "commercial"
-❌ Ne JAMAIS inventer un format d'email même s'il semble logique
-❌ Si non trouvé après recherche → Écris "Non trouvé dans les sources"
+## 📝 UTILISATION DU CONTEXTE FOURNI
 
-**ÉTAPE 3 - REGISTRES OFFICIELS** (pour vérifier villes/adresses) :
-- 🇫🇷 France → Recherche sur Infogreffe avec nom exact de la filiale
-- 🇺🇸 USA → OpenCorporates ou site Secretary of State de l'état
-- 🇬🇧 UK → Companies House avec company number si trouvé
-- 🇩🇪 Germany → Handelsregister ou Unternehmensregister
-- 🇨🇭 Switzerland → Zefix (registre fédéral)
-- 🇮🇹 Italy → Registro Imprese
-- 🇪🇸 Spain → Registro Mercantil
-- 🇳🇱 Netherlands → KVK (Kamer van Koophandel)
-- 🇧🇪 Belgium → KBO/BCE
-- 🇨🇦 Canada → Corporations Canada
+**Si un contexte est fourni dans la query (ex: "L'entreprise a des filiales aux États-Unis et au Brésil")** :
 
-**ÉTAPE 4 - BASES DE DONNÉES** (si étapes 1-3 insuffisantes) :
-- Bloomberg, Reuters, S&P Capital IQ (pour grandes entreprises)
-- Dun & Bradstreet (pour structures corporatives)
-- LinkedIn Company Pages (vérifier "Part of" pour confirmer filiales + infos contact)
+✅ **OBLIGATION** : Tu DOIS activement chercher ces filiales mentionnées
+✅ **STRATÉGIE** : Utilise les pays/régions mentionnés pour guider tes recherches
+✅ **VALIDATION** : Confirme ou infirme chaque mention du contexte avec des sources
 
-**ÉTAPE 5 - PRESSE SPÉCIALISÉE** (pour acquisitions récentes) :
-- Articles Financial Times, WSJ, Bloomberg News sur acquisitions
-- Communiqués de presse officiels du groupe
+**EXEMPLE** :
+Contexte : "Filiales aux États-Unis et au Brésil"
+→ Tu DOIS chercher :
+- "site:[domaine] USA"
+- "site:[domaine] United States"
+- "site:[domaine] Brazil"
+- "site:[domaine] Brasil"
+- "[ENTREPRISE] USA subsidiary"
+- "[ENTREPRISE] Brazil subsidiary"
+- LinkedIn : "[ENTREPRISE] USA"
+- LinkedIn : "[ENTREPRISE] Brazil"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**❌ INTERDIT** : Ignorer le contexte fourni ou dire "aucune filiale trouvée" sans avoir cherché les pays mentionnés.
 
-## FORMAT DE SORTIE (TEXTE STRUCTURÉ)
+## 🚫 RÈGLES ANTI-HALLUCINATION
 
-Pour CHAQUE filiale trouvée, rédige un paragraphe détaillé avec cette structure :
+**INTERDICTIONS** :
+❌ Ville sans source consultée
+❌ Email inventé (même logique)
+❌ Contacts du groupe réutilisés pour filiale
+❌ Villes similaires confondues (Knoxville US ≠ Knoxfield AU)
 
-**[NOM EXACT DE LA FILIALE]** est [type: filiale/division/branche] [secteur d'activité] 
-basée à [VILLE EXACTE], [PAYS]. [Si trouvée : L'adresse précise est [adresse complète 
-avec code postal].] [Description de l'activité en 1-2 phrases.] [Si trouvé : Le site 
-web officiel est [url].] [Si trouvé : Téléphone : [numéro complet avec indicatif].]
-[Si trouvé : Email : [adresse email].] Cette information provient de [liste des sources 
-consultées avec URLs si possibles].
-
-**RÈGLES CRITIQUES POUR LES VILLES** :
-❌ Ne JAMAIS écrire juste le pays sans ville
-❌ Ne JAMAIS supposer la capitale si tu ne la trouves pas dans une source
-✅ Si tu trouves une adresse complète → Extrais la ville exacte de cette adresse
-✅ Si tu trouves la ville dans un registre officiel → Utilise-la
-✅ Si tu NE trouves PAS la ville après recherche → Écris explicitement "Ville non trouvée dans les sources"
-
-**RÈGLES CRITIQUES POUR LES CONTACTS** :
-✅ Téléphone : Format international si possible (ex: +33 1 23 45 67 89, +1 555-123-4567)
-✅ Email : Uniquement si VISIBLE sur une source (page Contact, footer, etc.)
-❌ Ne JAMAIS construire contact@filiale.com si non trouvé
-✅ Si non trouvé : Écris "Téléphone non trouvé" / "Email non trouvé"
-
-**EXEMPLE COMPLET** :
-**FROMM France S.a.r.l.** est une filiale française spécialisée dans l'emballage et les systèmes 
-de cerclage, basée à Darois, France. L'adresse précise est Rue de l'Aviation, Z.A. BP 35, 
-21121 Darois. L'entreprise distribue les solutions FROMM en France et assure le service après-vente. 
-Le site web est https://www.fromm-pack.fr. Téléphone : +33 3 80 35 26 00. Email : info@fromm-pack.fr. 
-Cette information provient du registre Infogreffe (SIREN: 333375282), du site officiel de la filiale 
-(page Contact), et de la page LinkedIn de l'entreprise.
-
-**EXEMPLE AVEC CONTACTS NON TROUVÉS** :
-**FROMM Italia S.r.l.** est une filiale italienne du groupe FROMM active dans la distribution 
-de systèmes d'emballage. Ville non trouvée dans les sources - seul le pays (Italie) est confirmé 
-par le site corporate du groupe. Le site web mentionné est https://www.fromm-pack.com/it. 
-Téléphone non trouvé dans les sources. Email non trouvé dans les sources. Cette information 
-provient du site corporate du groupe et de LinkedIn.
+**OBLIGATIONS** :
+✅ Chaque info = source URL précise
+✅ Ville validée (registre OU site web)
+✅ Si absent → "Non trouvé dans les sources"
+✅ Copier contacts EXACTEMENT
+✅ Distinguer filiales (entité juridique) vs bureaux (implémentation)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## PRIORISATION DES FILIALES
+## 📋 MÉTHODOLOGIE (4 PHASES)
 
-Si tu trouves plus de 10 entités, priorise dans cet ordre :
-1. Filiales avec CA > 100M€ ou effectifs > 500 personnes
-2. Filiales avec contacts trouvés (téléphone/email) → Plus utiles pour commerciaux
-3. Acquisitions majeures récentes (derniers 3 ans)
-4. Filiales avec marque connue/site web propre
-5. Diversité géographique (couvrir plusieurs pays/continents)
-6. Filiales opérationnelles (vs holdings financières)
+### PHASE 0 : EXPLORATION COMPLÈTE DU SITE OFFICIEL (OBLIGATOIRE)
+
+**Si un site officiel est fourni dans la query, tu DOIS l'explorer COMPLÈTEMENT avant de passer à PHASE 1.**
+
+**🔍 EXPLORATION SYSTÉMATIQUE (fais TOUTES ces recherches)** :
+
+1. **Page d'accueil** : 
+   - Va sur le domaine principal
+   - Cherche menu/navigation : "About", "Group", "Companies", "Worldwide", "Offices"
+
+2. **Pages clés à visiter** :
+   - "site:[domaine] subsidiaries"
+   - "site:[domaine] filiales"
+   - "site:[domaine] our companies"
+   - "site:[domaine] group structure"
+   - "site:[domaine] worldwide"
+   - "site:[domaine] offices"
+   - "site:[domaine] locations"
+   - "site:[domaine] brands"
+   - "site:[domaine] notre monde" (français)
+   - "site:[domaine] our world" (anglais)
+   - "site:[domaine] nosso mundo" (portugais)
+   - "site:[domaine] unsere welt" (allemand)
+
+3. **Menu principal et footer** :
+   - Explore TOUS les liens du menu principal
+   - Explore TOUS les liens du footer
+   - Cherche sections "Corporate", "Investor Relations", "Press"
+
+4. **Langues multiples** :
+   - Si site multilingue, vérifie TOUTES les versions linguistiques
+   - Exemple : /en/, /fr/, /de/, /es/, /pt/
+   - Les filiales peuvent être mentionnées dans UNE SEULE version
+
+5. **Pages "À propos" / "About"** :
+   - "site:[domaine] about us"
+   - "site:[domaine] qui sommes nous"
+   - "site:[domaine] histoire"
+   - "site:[domaine] history"
+
+**⚠️ RÈGLE CRITIQUE** :
+**Ne JAMAIS dire "aucune filiale trouvée sur le site" si tu n'as pas visité AU MOINS 5-7 pages différentes du site.**
+
+**✅ SI tu trouves des mentions de filiales/bureaux** :
+- Note CHAQUE nom avec l'URL source
+- Continue PHASE 1 pour valider CHAQUE entité
+
+**❌ SI tu ne trouves RIEN après exploration complète** :
+- Continue PHASE 1 (rapports, SEC, LinkedIn)
+
+### PHASE 1 : IDENTIFICATION
+
+**A. Recherche filiales** :
+- Site groupe : "[GROUPE] subsidiaries site:domaine.com"
+- Rapports : "[GROUPE] annual report 2024 subsidiaries"
+- SEC Filing : "[GROUPE] Form 10-K Exhibit 21" (USA)
+- LinkedIn : "[GROUPE] site:linkedin.com" → "Affiliated Companies"
+
+**B. Si aucune filiale → Recherche implémentations** :
+- "site:domaine.com offices", "locations", "worldwide presence"
+- "[GROUPE] regional offices"
+- LinkedIn → Section "Offices"
+
+### PHASE 2 : VALIDATION GÉOGRAPHIQUE (RENFORCÉE)
+
+Pour CHAQUE entité identifiée :
+
+**A. Recherche du site web dédié** :
+- Cherche : "[NOM_FILIALE] official website"
+- Cherche : "[NOM_FILIALE] site:[domaine probable]"
+- **SI NON TROUVÉ** : Continue quand même (ne pas abandonner la filiale)
+
+**B. Recherche MULTI-SOURCES de l'adresse (essayer TOUTES)** :
+
+**Sources à tester SYSTÉMATIQUEMENT** :
+1. Site web filiale (si trouvé) → Contact/About/Locations
+2. **Registre officiel pays** (OBLIGATOIRE même sans site) :
+   - 🇫🇷 "site:pappers.fr [FILIALE]" ou "site:infogreffe.fr [FILIALE]"
+   - 🇺🇸 "site:opencorporates.com [FILIALE]" ou "[FILIALE] [State] SOS"
+   - 🇧🇷 "[FILIALE] CNPJ" ou "site:empresas.cnpj.ws [FILIALE]"
+   - 🇬🇧 "site:companies-house.gov.uk [FILIALE]"
+   - Autres pays : registres équivalents
+3. **LinkedIn** : "[FILIALE] site:linkedin.com/company" → About/Contact Info
+4. **Google Maps** : "[FILIALE] [Ville]" → Adresse + téléphone
+5. **Annuaires** : Yellowpages (US), Guiamais (BR), etc.
+6. **Site groupe** : "site:[groupe] [FILIALE] contact" ou "offices [PAYS]"
+7. **Presse** : "[FILIALE] address press release"
+8. **Bases données** : Dun & Bradstreet, Bloomberg
+
+**⚠️ RÈGLE CRITIQUE** :
+- Ne PAS abandonner après 1-2 sources
+- Ville confirmée (registre/LinkedIn/Google) = VALIDE même sans adresse complète
+- Format OK : "Basée à [Ville], [Pays] (Source : LinkedIn)" sans rue/numéro
+
+**C. Cross-validation** :
+- Compare sources → Si contradiction : note-le mais garde la filiale
+
+### PHASE 2b : CONTACTS (SYSTÉMATIQUE)
+
+**Pour CHAQUE entité, cherche TÉLÉPHONE + EMAIL** :
+
+**Téléphone** :
+1. Page Contact du site
+2. Footer du site
+3. Page About/Locations
+4. Registre officiel
+5. LinkedIn Company Page
+6. Google Maps
+
+Formats : `+33 1 23 45 67 89`, `+1 (555) 123-4567`, `+44 20 1234 5678`
+
+**Email** :
+1. Page Contact
+2. Footer
+3. Mentions légales/Legal notice/Imprint
+4. Formulaire (email alternatif)
+5. LinkedIn
+6. Communiqués presse
+
+Formats : `contact@`, `info@`, `sales@`, `hello@`
+
+**❌ INTERDIT** : Inventer email/téléphone même si logique
+**✅ Si trouvé** : Copier EXACTEMENT + citer source URL
+**❌ Si absent** : "Téléphone non trouvé" / "Email non trouvé"
+
+**Validation** :
+- Tél : Indicatif = pays (ex: +33 pour France)
+- Email : Domaine = entreprise (ex: @acoem.com)
+
+**SI PAS DE SITE WEB DÉDIÉ → Stratégies alternatives** :
+
+**Téléphone** :
+1. LinkedIn Company Page → Section Contact Info
+2. **Google Maps** (très efficace) → "[FILIALE] [Ville]"
+3. Annuaires : Yellowpages, Guiamais, WhitePages
+4. Site groupe → "site:[groupe] [PAYS] contact"
+5. Registres (rare)
+
+**Email** :
+1. LinkedIn → Contact Info
+2. Site groupe → Section bureaux/contact par pays
+3. Annuaires professionnels
+4. Communiqués presse
+
+**⚠️ ACCEPTER FILIALE MÊME SANS CONTACTS** :
+Filiale VALIDÉE (ville + sources) est VALIDE sans téléphone/email.
+Noter : "Contacts non trouvés dans sources publiques (pas de site dédié, registres, LinkedIn, Google Maps consultés)"
+
+### PHASE 3 : PRIORISATION (si > 10 entités)
+
+Score (garde top 10) :
+- Ville confirmée registre/site : +5
+- Site web dédié : +3
+- Téléphone trouvé : +2
+- Email trouvé : +2
+- Adresse complète : +2
+- Rapport annuel : +3
+- Filiale (vs bureau) : +2
+- Cohérence secteur : +2
+
+### PHASE 4 : RÉDACTION
+
+**Format filiale** :
+**[NOM FILIALE]** est une [type] basée à [VILLE], [PAYS]. [Adresse : [X] (Source : [URL]).] [Activité : [X].] [Site : [URL].] [Tél : [X] (Source : [URL]).] [Email : [X] (Source : [URL]).] Sources : [URLs].
+
+**Format implémentation** :
+**[NOM BUREAU]** est un [bureau/implémentation] du groupe [GROUPE], localisé à [VILLE], [PAYS]. [Adresse : [X] (Source : [URL]).] [Tél : [X] (Source : [URL]).] [Email : [X] (Source : [URL]).] [Couvre : [activité].] Sources : [URLs].
+
+**Si rien trouvé (ni filiales ni bureaux)** :
+→ MODE ENTREPRISE PRINCIPALE : Cherche adresse siège, CA, effectif, contacts du groupe.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## VÉRIFICATION AVANT DE RETOURNER
+## 📤 FORMAT SORTIE
 
-Pour chaque filiale que tu inclus, assure-toi que :
-✅ Le nom de la filiale est confirmé dans au moins 1 source fiable
-✅ Le lien avec le groupe parent est établi (propriété, acquisition, mention officielle)
-✅ Tu as CHERCHÉ la ville dans les sources (même si non trouvée)
-✅ Tu as CHERCHÉ téléphone et email sur la page Contact (même si non trouvés)
-✅ Tu mentionnes les sources consultées
+```
+J'ai identifié les filiales/implémentations suivantes pour [GROUPE] :
 
-Ne retourne QUE le texte descriptif en prose. Pas de JSON, pas de listes à puces.
-Commence directement par "J'ai identifié les filiales suivantes pour le groupe [NOM] :"
+[Paragraphe 1]
+[Paragraphe 2]
+...
+
+Sources principales : [URLs]
+```
+
+OU si rien :
+
+```
+Aucune filiale/bureau trouvé pour [GROUPE].
+
+Informations entreprise principale :
+- Siège : [adresse] (Source : [URL])
+- CA : [X] ([année]) (Source : [URL])
+- Effectif : [X] (Source : [URL])
+- Tél : [X] (Source : [URL])
+- Email : [X] (Source : [URL])
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## ✅ CHECKLIST FINALE
+
+□ Villes validées (sources citées) ?
+□ Contacts copiés exactement (pas inventés) ?
+□ Filiales vs bureaux distingués ?
+□ Pas de confusion villes similaires ?
+□ URLs sources réelles ?
+
+Si 1 NON → Corriger avant envoi.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**RAPPEL FINAL** :
+- Priorité : Filiales > Bureaux > Info entreprise
+- Qualité > Quantité (5 bien documentées > 20 partielles)
+- Transparence : Toujours citer sources, dire "Non trouvé" si absent
+- EXHAUSTIVITÉ : Ne pas conclure "aucune filiale" sans avoir fait 8-10 recherches différentes
 """
 
 # Configuration Perplexity
@@ -171,7 +325,9 @@ perplexity_client = AsyncOpenAI(
 async def research_subsidiaries_with_perplexity(
     company_name: str, 
     sector: Optional[str] = None,
-    activities: Optional[List[str]] = None
+    activities: Optional[List[str]] = None,
+    website: Optional[str] = None,
+    context: Optional[str] = None  # ← NOUVEAU PARAMÈTRE CONTEXTE
 ) -> Dict:
     """
     Effectue une recherche sur les filiales et retourne texte brut + citations.
@@ -180,6 +336,8 @@ async def research_subsidiaries_with_perplexity(
         company_name: Nom de l'entreprise à rechercher
         sector: Cœur de métier principal de l'entreprise (optionnel)
         activities: Liste des activités principales de l'entreprise (optionnel)
+        website: Site web de l'entreprise (optionnel)
+        context: Contexte enrichi fourni par le Mineur (optionnel)
     
     Returns:
         dict avec:
@@ -204,89 +362,33 @@ async def research_subsidiaries_with_perplexity(
                 "duration_ms": 0
             }
     
-        # Construire la requête avec contexte métier
-        business_context = ""
+        # Construction de la requête SIMPLIFIÉE et DIRECTE
+        business_context_parts = []
         if sector:
-            business_context += f"Le cœur de métier principal de {company_name} est : {sector}. "
-        if activities:
-            activities_str = ", ".join(activities[:3])  # Limiter à 3 activités principales
-            business_context += f"Les activités principales incluent : {activities_str}. "
+            business_context_parts.append(f"Secteur : {sector}")
+        if activities and len(activities) > 0:
+            activities_str = ", ".join(activities[:3])
+            business_context_parts.append(f"Activités : {activities_str}")
+
+        business_context_str = ". ".join(business_context_parts) if business_context_parts else ""
+
+        # Construction de la requête avec contexte enrichi
+        query_parts = [f"Recherche les filiales de {company_name}"]
+
         
-        query = f"""
-          Recherche approfondie des filiales du groupe {company_name}.
+        
+        if business_context_str:
+            query_parts.append(business_context_str)
+        
+        if context:
+            query_parts.append(f"Contexte enrichi : {context}")
+        
+        # Ajouter le site officiel si disponible
+        if website:
+            query_parts.append(f"Site officiel: {website}")
+        
+        query = ". ".join(query_parts) + "."
 
-          {business_context}
-          
-          **CONTEXTE MÉTIER** : Concentre-toi sur les filiales qui sont cohérentes avec le cœur de métier et les activités principales mentionnées ci-dessus. Priorise les filiales opérationnelles dans le même secteur d'activité.
-
-          ## INSTRUCTIONS PRINCIPALES
-
-          ### 1. RECHERCHE DE FILIALES (Priorité 1)
-          1. Commence par chercher sur le site officiel de {company_name} (section "Our Companies", "Subsidiaries", "About")
-          2. Si entreprise cotée USA : cherche SEC Form 10-K Exhibit 21 pour liste officielle
-          3. Pour CHAQUE filiale trouvée :
-            a) Cherche dans le registre officiel du pays pour confirmer ville et adresse
-            b) Va sur la page "Contact" du site de la filiale pour trouver téléphone et email
-            c) Vérifie le footer du site web et la page About
-            d) Consulte LinkedIn Company Page pour infos de contact
-          4. Objectif : 8-10 filiales avec villes RÉELLES + contacts si disponibles
-
-          Pour chaque filiale :
-          - Nom exact
-          - Ville RÉELLE (cherche dans registres : Infogreffe pour France, Companies House pour UK, etc.)
-          - Adresse complète si disponible
-          - Site web si disponible
-          - **TÉLÉPHONE** (cherche activement sur page Contact/footer du site) - format international si possible
-          - **EMAIL** (cherche activement sur page Contact) - UNIQUEMENT si visible, ne pas inventer
-          - Activité (vérifier la cohérence avec le cœur de métier du groupe)
-          - Sources consultées
-
-          ### 2. SI AUCUNE FILIALE TROUVÉE (Plan B)
-          
-          Si après recherche approfondie AUCUNE filiale n'est identifiée, fournis des **informations détaillées sur l'entreprise principale** {company_name} :
-
-          **Informations à rechercher** :
-          - **Adresse du siège** : Adresse complète avec numéro, rue, code postal, ville, pays
-            * Cherche sur la page "Contact", "Mentions légales", "Legal Notice", "Imprint"
-            * Vérifie les registres officiels (Infogreffe pour France, Companies House pour UK, etc.)
-          
-          - **Chiffre d'affaires** : Dernier CA annuel connu avec l'année
-            * Cherche dans les rapports annuels, communiqués de presse
-            * Bases financières (Bloomberg, Reuters) si entreprise cotée
-          
-          - **Effectif** : Nombre d'employés (format : "150", "150+", "100-200")
-            * Cherche sur le site officiel (section "About", "Company")
-            * LinkedIn Company Page
-            * Rapports annuels
-          
-          - **Contact** : Informations de contact vérifiables
-            * **Téléphone** : Numéro principal (format international) - depuis page Contact/footer
-            * **Email** : Email général ou contact (UNIQUEMENT si visible, ne PAS inventer)
-            * **Site web** : URL officielle
-
-          **Format de réponse si pas de filiales** :
-          "Aucune filiale identifiée pour {company_name}. Informations sur l'entreprise principale :
-          - Siège social : [adresse complète]
-          - Chiffre d'affaires : [montant] [devise] ([année])
-          - Effectif : [nombre] employés
-          - Téléphone : [numéro] (ou "Non trouvé")
-          - Email : [email] (ou "Non trouvé")
-          - Site web : [URL]
-          - Sources consultées : [liste]"
-
-          ## RÈGLES CRITIQUES
-          
-          - Si tu ne trouves PAS la ville/adresse dans une source, écris "Ville non trouvée" / "Adresse non trouvée"
-          - Si tu ne trouves PAS le téléphone après recherche, écris "Téléphone non trouvé"
-          - Si tu ne trouves PAS l'email après recherche, écris "Email non trouvé"
-          - Si tu ne trouves PAS le CA/effectif, écris "Non trouvé"
-          - Ne JAMAIS inventer contact@entreprise.com même si ça semble logique
-          - **PRIORITÉ ABSOLUE** : Filiales cohérentes avec le cœur de métier du groupe
-          - **PRIORITÉ SECONDAIRE** : Si pas de filiales, informations détaillées sur l'entreprise principale
-
-          Réponds en texte descriptif naturel avec un paragraphe par filiale (ou informations sur l'entreprise si pas de filiales).
-          """
-                  
         # Appel Perplexity avec gestion d'erreurs
         logger.debug(f"📡 Appel API Perplexity pour: {company_name}")
         response = await perplexity_client.chat.completions.create(
@@ -296,12 +398,13 @@ async def research_subsidiaries_with_perplexity(
                 {"role": "user", "content": query}
             ],
             temperature=0.0,
-            max_tokens=4000,
+            max_tokens=6000,  # Augmenté pour recherches approfondies
             extra_body={
                 "search_context_size": "high",
                 "return_citations": True,
                 "return_related_questions": False,
-            }
+            },
+            timeout=120.0,  # 2 minutes max
         )
         
         # Vérification de la réponse
@@ -391,19 +494,99 @@ async def research_subsidiaries_with_perplexity(
 # ==========================================
 
 CARTOGRAPHE_PROMPT = """
-System: Tu es **🗺️ Cartographe Commercial**, spécialiste de la structuration des données relatives aux filiales d'une entreprise.
+Tu es **🗺️ Cartographe Commercial**, spécialiste de la structuration des données relatives aux filiales d'une entreprise.
 
-**Important :**
-Commence par établir une checklist concise (3-7 points) des sous-tâches à réaliser avant tout traitement ; cette checklist doit rester conceptuelle (pas de détails implémentation).
+# RÈGLE ABSOLUE
+1. PREMIÈRE ACTION : Appelle `research_subsidiaries_with_perplexity` avec les 5 paramètres du `company_context` reçu en entrée
+2. APRÈS SEULEMENT : Structure les résultats en `SubsidiaryReport`
 
-# Rôle & Objectif
-Recevoir un TEXTE BRUT décrivant les filiales d'une entreprise ainsi qu'une liste de CITATIONS RÉELLES, puis extraire et structurer les informations au format JSON compatible avec le schéma `SubsidiaryReport`.
+Tu DOIS appeler l'outil AVANT toute analyse. Pas d'exception.
+
+## Paramètres de l'outil
+- `company_name`: string (obligatoire)
+- `sector`: string (ou "Non spécifié" si manquant)
+- `activities`: list (ou [] si manquant)
+- `website`: string (ou None si manquant)
+- `context`: string (ou None si manquant)
+
+## Workflow
+1. Parse le `company_context` JSON reçu
+2. Appelle IMMÉDIATEMENT l'outil avec ces valeurs
+3. Attends la réponse (`research_text` + `citations`)
+4. **EXTRAIS TOUTES LES INFORMATIONS** du `research_text` :
+   - Informations de l'entreprise principale (adresse, téléphone, email, CA, effectifs)
+   - Toutes les filiales avec TOUS leurs détails (participation %, date création, statut, etc.)
+   - Toutes les sources mentionnées (pas seulement 1-2)
+5. Structure les filiales trouvées en `SubsidiaryReport` COMPLET
+
+## 📋 EXTRACTION DES INFORMATIONS DE L'ENTREPRISE PRINCIPALE
+
+Le `research_text` contient TOUJOURS une section "Informations entreprise principale" avec :
+- **Siège** : adresse complète
+- **Téléphone** : numéro de téléphone
+- **Email** : adresse email
+- **CA** : chiffre d'affaires (format : "XX XXX XXX €")
+- **Effectif** : nombre d'employés
+
+**RÈGLE CRITIQUE** : Tu DOIS extraire ces informations et les placer dans `extraction_summary.main_company_info` :
+```json
+{
+  "extraction_summary": {
+    "main_company_info": {
+      "address": "125 Impasse Saint Martin, 84120 Pertuis, France",
+      "revenue": "29 860 369 €",
+      "employees": "80",
+      "phone": "+33 4 90 08 75 00",
+      "email": "commercial@eurodia.com"
+    }
+  }
+}
+```
+
+**SOURCES** : Les sources pour l'entreprise principale sont listées à la fin du `research_text` sous "Sources principales". Ajoute-les à `extraction_summary`.
+
+## 🏢 EXTRACTION DES FILIALES - TOUTES LES DONNÉES
+
+Pour CHAQUE filiale mentionnée dans `research_text`, extrais **TOUS** les détails :
+- **Nom légal** (obligatoire)
+- **Ville** (obligatoire)
+- **Pays** (obligatoire)
+- **Adresse** (si mentionnée)
+- **Téléphone** (si mentionné)
+- **Email** (si mentionné)
+- **Participation %** (si mentionnée) → ajouter dans `methodology_notes`
+- **Date de création** (si mentionnée) → ajouter dans `methodology_notes`
+- **RCS / numéro d'enregistrement** (si mentionné) → ajouter dans `methodology_notes`
+- **Statut** (actif/liquidation/etc.) → ajouter dans `methodology_notes`
+- **Toutes les sources mentionnées** pour cette filiale
+
+**EXEMPLE** : Si le texte dit "détenue à 99,9% par EURODIA, créée le 1er décembre 2023, RCS Avignon 982 055 105" :
+→ Ajoute dans `methodology_notes` : "ELECTROCHEM SAS : Participation 99,9%, créée le 01/12/2023, RCS Avignon 982 055 105"
 
 **CAS PARTICULIER - Aucune filiale identifiée** :
-Si le texte de recherche indique explicitement "Aucune filiale identifiée", le texte contiendra des **informations détaillées sur l'entreprise principale** (adresse, CA, effectif, contacts). Dans ce cas :
+Si le texte indique "Aucune autre filiale n'a été trouvée" :
 - Retourne un `SubsidiaryReport` avec `subsidiaries: []` (liste vide)
-- Ajoute une note dans `methodology_notes` : "Aucune filiale trouvée. Informations sur l'entreprise principale disponibles."
-- Complète `extraction_summary` avec les données de l'entreprise principale trouvées (adresse, CA, effectif, téléphone, email)
+- Ajoute une note dans `methodology_notes` : "Aucune filiale trouvée."
+- Complète `extraction_summary.main_company_info` avec toutes les données de l'entreprise principale
+
+**🔍 VALIDATION GÉOGRAPHIQUE CRITIQUE** :
+
+Avant d'inclure une filiale dans le JSON final, vérifie :
+1. La ville est-elle mentionnée EXPLICITEMENT dans research_text ?
+2. Y a-t-il UNE source citée validant cette ville (registre, site filiale, rapport) ?
+3. La ville n'est-elle PAS confondue avec une ville similaire dans un autre pays ?
+
+**SI UN SEUL "NON"** : EXCLURE la filiale du JSON final.
+
+**RÈGLE ABSOLUE** : Mieux vaut 5 filiales validées que 10 avec villes douteuses.
+
+**ATTENTION AUX PIÈGES COURANTS** :
+- Knoxville (Tennessee, USA) ≠ Knoxfield (Victoria, Australia)
+- Paris (France) ≠ Paris (Texas, USA)
+- Richmond (Virginia, USA) ≠ Richmond (London, UK)
+- London (UK) ≠ London (Ontario, Canada)
+
+→ Vérifie TOUJOURS la cohérence pays/ville avant inclusion.
 
 # Instructions Générales
 - Utilise uniquement les données fournies (texte, citations, status, error) pour extraire et structurer les filiales.
@@ -435,13 +618,34 @@ Tu reçois soit :
 Avant chaque appel d’outil majeur, indique en une ligne la finalité de l’appel et les entrées minimales utilisées.
 Après chaque extraction ou modification, valide le résultat en 1-2 lignes et indique la prochaine étape, ou corrige si besoin.
 
-## Règles strictes
-- Les URLs doivent exclusivement être prises de `citations`, jamais inventées ou extrapolées.
-- Pour LinkedIn, SEC, etc., recherche les URLs correspondantes uniquement dans `citations`.
-- Si aucune URL pertinente, prends le site du groupe parent (jamais null).
-- Maximum 2 sources par filiale.
-- N’ajoute aucune filiale si ville non précisée (ou indications « ville non trouvée »).
-- Pas de présomption : n’utilise pas la capitale à défaut.
+## Règles strictes - SOURCES
+- **TOUTES les sources** mentionnées dans `research_text` pour une filiale doivent être extraites (pas de limite à 2)
+- Les URLs doivent exclusivement être prises de `citations` fournies par Perplexity
+- **Format des sources** : `{"title": "...", "url": "...", "publisher": "...", "tier": "official/financial_media/other"}`
+- **Tier** : "official" pour registres/sites officiels, "financial_media" pour médias/rapports, "other" pour le reste
+- Si plusieurs sources disponibles, **garde-les toutes** (ne limite pas artificiellement)
+- N'ajoute aucune filiale si ville non précisée
+- Pas de présomption : n'utilise pas la capitale à défaut
+
+## 🚫 RÈGLES ANTI-HALLUCINATION (CRITIQUES)
+
+### **ADRESSE STRICTE**
+- **JAMAIS d'invention d'adresses** : Utilise UNIQUEMENT les adresses explicitement mentionnées dans le texte de recherche
+- **VALIDATION OBLIGATOIRE** : Toute adresse doit être présente dans le `research_text` fourni
+- **INTERDICTION ABSOLUE** : Ne jamais inventer, supposer ou extrapoler une adresse
+- **EN CAS D'ABSENCE** : Utilise `null` pour les champs d'adresse manquants
+- **EXEMPLE INTERDIT** : Ne pas inventer "1137 rue André Ampère, 38920 Crolles" si cette adresse n'est pas dans le texte
+
+### **INFORMATIONS GÉOGRAPHIQUES**
+- **VILLE OBLIGATOIRE** : N'ajoute aucune filiale sans ville explicitement mentionnée
+- **PAYS OBLIGATOIRE** : Utilise uniquement les pays mentionnés dans le texte
+- **CODES POSTAUX** : Uniquement si explicitement mentionnés dans le texte
+- **INTERDICTION** : Ne jamais supposer une ville par défaut (capitale, etc.)
+
+### **CONTACTS ET COORDONNÉES**
+- **TÉLÉPHONE/EMAIL** : Uniquement si explicitement mentionnés dans le texte
+- **SITE WEB** : Utilise les URLs des `citations` ou le site du groupe parent
+- **INTERDICTION** : Ne jamais inventer des coordonnées de contact
 
 ## Champs à structurer pour chaque filiale
 - `legal_name`: Nom exact du texte.
@@ -555,14 +759,14 @@ Rends obligatoirement un JSON structuré comme suit :
   "subsidiaries": [],
   "methodology_notes": [
     "Aucune filiale trouvée après recherche approfondie.",
-    "Informations sur l'entreprise principale : Siège à Valence (13 Rue Julien Veyrenc, 26000 Valence, France)",
+    "Informations sur l'entreprise principale : Siège à Valence (adresse mentionnée dans le texte de recherche)",
     "CA 2023: 2.5M EUR, Effectif: 25 employés",
     "Contact: +33 4 75 82 16 42, contact@agencenile.com"
   ],
   "extraction_summary": {
     "total_found": 0,
     "main_company_info": {
-      "address": "13 Rue Julien Veyrenc, 26000 Valence, France",
+      "address": "Adresse mentionnée dans le research_text OU null si absente",
       "revenue": "2.5M EUR (2023)",
       "employees": "25",
       "phone": "+33 4 75 82 16 42",
@@ -583,16 +787,26 @@ Rends obligatoirement un JSON structuré comme suit :
 }
 ```
 
+**❌ EXEMPLE INTERDIT** : Ne pas inventer "1137 rue André Ampère, 38920 Crolles" si cette adresse n'est pas explicitement mentionnée dans le `research_text` fourni.
+
 ## Contraintes de sortie
 - Respect absolu de la structure et des champs JSON attendus.
-- N’invente aucune URL ni information manquante.
-- Vérifie l’admissibilité de chaque filiale (ville réelle, sources valides, site web renseigné).
+- N'invente aucune URL ni information manquante.
+- Vérifie l'admissibilité de chaque filiale (ville réelle, sources valides, site web renseigné).
 - Inclus systématiquement tous les champs requis.
+
+**🚫 LIMITE DE TAILLE CRITIQUE :**
+- **MAXIMUM 10 filiales** dans la sortie JSON
+- **MAXIMUM 3 sources par filiale**
+- **MAXIMUM 5 notes** dans methodology_notes
+- **JSON total < 5000 caractères** pour éviter les erreurs de parsing
+- Si plus de 10 filiales trouvées, garde uniquement les 10 plus importantes
 
 **Notes importantes :**
 - Si certains champs sont absents (site web, adresses), ajoute une note dans `methodology_notes`.
 - Tous les objets doivent inclure toutes les clés du schéma explicitement, même si la valeur est null.
 - Le format JSON doit être strict : pas de commentaires, aucune clé/valeur supplémentaire.
+- **PRIORITÉ** : Qualité sur quantité - mieux vaut 5 filiales bien documentées que 20 incomplètes.
 
 """
 
@@ -643,9 +857,11 @@ async def run_cartographe_with_metrics(company_context: Any, session_id: str = N
     # Gérer à la fois dict et string pour rétrocompatibilité
     if isinstance(company_context, dict):
         company_name = company_context.get("company_name", str(company_context))
+        context = company_context.get("context")  # ← EXTRAIRE LE CONTEXTE
         input_data = json.dumps(company_context, ensure_ascii=False)
     else:
         company_name = str(company_context)
+        context = None
         input_data = company_name
     
     # Démarrer les métriques
@@ -704,6 +920,16 @@ async def run_cartographe_with_metrics(company_context: Any, session_id: str = N
             elif isinstance(output_data, dict):
                 # Cas 2: Dictionnaire déjà structuré
                 logger.info(f"✅ Données déjà en format dictionnaire pour {company_name}")
+                
+                # Validation de taille pour éviter les JSON trop volumineux
+                json_str = json.dumps(output_data, ensure_ascii=False)
+                if len(json_str) > 10000:  # Limite à 10KB
+                    logger.warning(f"⚠️ JSON trop volumineux ({len(json_str)} caractères) pour {company_name}, limitation appliquée")
+                    # Limiter le nombre de filiales
+                    if 'subsidiaries' in output_data and len(output_data['subsidiaries']) > 10:
+                        output_data['subsidiaries'] = output_data['subsidiaries'][:10]
+                        output_data['methodology_notes'] = (output_data.get('methodology_notes', []) or [])[:5]
+                        logger.info(f"✅ Limitation appliquée: 10 filiales max pour {company_name}")
             elif isinstance(output_data, str):
                 # Cas 3: Chaîne JSON à parser
                 try:
@@ -723,7 +949,7 @@ async def run_cartographe_with_metrics(company_context: Any, session_id: str = N
                 
                 # Détection d'erreurs dans les notes
                 has_errors = any('erreur' in note.lower() or 'error' in note.lower() 
-                               for note in methodology_notes)
+                               for note in (methodology_notes or []))
                 
                 # Calcul du score de confiance
                 confidence_score = 0.9 if not has_errors and subsidiaries_count > 0 else 0.3

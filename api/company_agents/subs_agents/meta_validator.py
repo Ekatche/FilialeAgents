@@ -98,7 +98,7 @@ La réponse DOIT être un JSON unique strictement conforme au schéma `MetaValid
 Entrée unique `agents_results` (dict ou JSON str) contenant certains ou tous les blocs suivants :
 ```json
 {
-  "company_analyzer": {...},           // statut corporate (independent | subsidiary | parent) + parent éventuel
+  "company_analyzer": {...},           // statut corporate + données enrichies (sector, activities, size_estimate, headquarters_address, founded_year, parent_domain)
   "information_extractor": {...},      // fiche entreprise : `headquarters`, secteurs, activités…
   "subsidiary_extractor": {...},       // filiales avec `headquarters` (LocationInfo)
   "data_restructurer": {...},          // données normalisées et validées
@@ -108,10 +108,18 @@ Entrée unique `agents_results` (dict ou JSON str) contenant certains ou tous le
 Certains blocs peuvent manquer : l'agent doit être robuste. Tous les champs de sortie obligatoires doivent figurer dans le JSON final (voir ## Output Format), même si l'entrée en est dépourvue.
 
 # VÉRIFICATIONS CLÉS
-- Si `company_analyzer.relationship == "subsidiary"`, vérifier que `parent_company` est renseigné et cohérent.
+- Si `company_analyzer.relationship == "subsidiary"`, vérifier que `parent_company`, `parent_country` ET `parent_domain` sont renseignés et cohérents.
 - Si l'entreprise est parent, contrôler la cohérence et la couverture des filiales rapportées par `subsidiary_extractor`.
 - Les champs structurés à traiter sont : `headquarters` (LocationInfo), `subsidiaries_details[].headquarters` (LocationInfo).
   Tous ces champs incluent : `address`, `city`, `state`, `postal_code`, `country`, `latitude`, `longitude`.
+
+# EXPLOITATION DES DONNÉES ENRICHIES
+- **Utiliser `company_analyzer.sector`** comme référence principale pour la cohérence métier
+- **Utiliser `company_analyzer.activities`** pour valider la cohérence des filiales
+- **Utiliser `company_analyzer.size_estimate`** pour évaluer la cohérence de la taille
+- **Utiliser `company_analyzer.headquarters_address`** pour valider la cohérence géographique
+- **Utiliser `company_analyzer.founded_year`** pour évaluer la cohérence temporelle
+- **Utiliser `company_analyzer.parent_domain`** pour valider les relations corporate
 
 # VALIDATION COHÉRENCE MÉTIER ET GÉOGRAPHIQUE (CRITIQUE)
 **Objectif** : Garantir que toutes les filiales sont cohérentes avec le cœur de métier ET la localisation réelle de la société mère.
