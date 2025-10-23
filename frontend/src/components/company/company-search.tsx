@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Globe, Building2, Loader2 } from "lucide-react";
+import { Search, Globe, Building2, Loader2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -14,7 +15,7 @@ import {
 import { motion } from "framer-motion";
 
 interface CompanySearchProps {
-  onSearch: (query: string, isURL?: boolean) => void;
+  onSearch: (query: string, isURL?: boolean, deepSearch?: boolean) => void;
   isLoading?: boolean;
   placeholder?: string;
 }
@@ -26,10 +27,11 @@ export function CompanySearch({
 }: CompanySearchProps) {
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"name" | "url">("name");
+  const [deepSearch, setDeepSearch] = useState(false);
 
   const handleSearch = () => {
     if (query.trim()) {
-      onSearch(query.trim(), searchType === "url");
+      onSearch(query.trim(), searchType === "url", deepSearch);
     }
   };
 
@@ -72,25 +74,55 @@ export function CompanySearch({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2 mb-4">
-            <Button
-              variant={searchType === "name" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSearchType("name")}
-              className="flex items-center gap-2"
-            >
-              <Building2 className="w-4 h-4" />
-              Nom d&apos;entreprise
-            </Button>
-            <Button
-              variant={searchType === "url" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSearchType("url")}
-              className="flex items-center gap-2"
-            >
-              <Globe className="w-4 h-4" />
-              Site web
-            </Button>
+          <div className="flex flex-col gap-4 mb-4">
+            {/* Type de recherche */}
+            <div className="flex gap-2">
+              <Button
+                variant={searchType === "name" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSearchType("name")}
+                className="flex items-center gap-2"
+              >
+                <Building2 className="w-4 h-4" />
+                Nom d&apos;entreprise
+              </Button>
+              <Button
+                variant={searchType === "url" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSearchType("url")}
+                className="flex items-center gap-2"
+              >
+                <Globe className="w-4 h-4" />
+                Site web
+              </Button>
+            </div>
+
+            {/* Mode de recherche approfondie - Toggle */}
+            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg border border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg transition-colors ${deepSearch ? 'bg-blue-500' : 'bg-slate-300'}`}>
+                  <Zap className={`w-5 h-5 ${deepSearch ? 'text-white' : 'text-slate-600'}`} />
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">
+                      Recherche Approfondie
+                    </span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {deepSearch
+                      ? 'Analyse exhaustive avec sources multiples et vérifications croisées'
+                      : 'Analyse rapide et efficace pour des résultats optimaux'
+                    }
+                  </span>
+                </div>
+              </div>
+              <Switch
+                checked={deepSearch}
+                onCheckedChange={setDeepSearch}
+                className="data-[state=checked]:bg-blue-500"
+              />
+            </div>
           </div>
 
           <div className="flex gap-2">

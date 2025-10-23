@@ -17,7 +17,7 @@ WORKDIR /app
 
 # Copie des fichiers de dépendances et installation
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm install
 
 # Phase de build
 FROM base AS builder

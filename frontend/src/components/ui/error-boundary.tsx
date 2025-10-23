@@ -78,8 +78,8 @@ function DefaultErrorFallback({ error, reset }: ErrorFallbackProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-800 font-mono">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-h-32 overflow-y-auto">
+          <p className="text-sm text-red-800 font-mono break-words">
             {error.message || "Erreur inconnue"}
           </p>
         </div>
@@ -96,9 +96,11 @@ function DefaultErrorFallback({ error, reset }: ErrorFallbackProps) {
           <summary className="cursor-pointer hover:text-foreground">
             Détails techniques
           </summary>
-          <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-auto">
-            {error.stack}
-          </pre>
+          <div className="mt-2 p-2 bg-gray-100 rounded text-xs max-h-48 overflow-y-auto">
+            <pre className="whitespace-pre-wrap break-words">
+              {error.stack}
+            </pre>
+          </div>
         </details>
       </CardContent>
     </Card>

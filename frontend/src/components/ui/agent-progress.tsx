@@ -244,13 +244,15 @@ const AgentCard = React.memo(
                   : "En cours")}
             </motion.span>
             {agent.error_message && (
-              <motion.span
+              <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="text-red-600 font-medium"
+                className="text-red-600 font-medium max-w-xs"
               >
-                {agent.error_message}
-              </motion.span>
+                <div className="bg-red-50 border border-red-200 rounded p-2 max-h-20 overflow-y-auto">
+                  <p className="text-xs break-words">{agent.error_message}</p>
+                </div>
+              </motion.div>
             )}
           </div>
       {/* Affichage des métriques de performance détaillées */}

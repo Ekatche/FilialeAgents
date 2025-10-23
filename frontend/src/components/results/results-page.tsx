@@ -68,6 +68,8 @@ const SubsidiaryDetailPanel = dynamic(
   }
 );
 
+
+
 // Fonction utilitaire pour vérifier si companyData a des filiales
 const hasSubsidiaries = (data: CompanyData | null): boolean => {
   if (!data) {
@@ -113,6 +115,7 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
 
   // Gérer le cas où searchParams pourrait être null
   const query = searchParams?.get("query") || null;
+  const deepSearch = searchParams?.get("deepSearch") === "true" || false;
 
   // Debug logs simplifiés (déplacé hors du render pour éviter les re-renders)
   useEffect(() => {
@@ -149,12 +152,14 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
           url: query,
           include_subsidiaries: true,
           max_subsidiaries: 50,
+          deep_search: deepSearch,
         });
       } else {
         response = await api.startExtractionAsync({
           company_name: query,
           include_subsidiaries: true,
           max_subsidiaries: 50,
+          deep_search: deepSearch,
         });
       }
 
@@ -503,7 +508,9 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-center space-y-4">
-                <p className="text-red-600">{error}</p>
+                <div className="bg-red-100 border border-red-300 rounded-lg p-4 max-h-32 overflow-y-auto">
+                  <p className="text-red-700 text-sm break-words">{error}</p>
+                </div>
                 <div className="flex gap-4 justify-center">
                   <Button onClick={handleSearch} variant="outline">
                     <RefreshCw className="w-4 h-4 mr-2" />
@@ -680,6 +687,7 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
                   </DebugWrapper>
                 </motion.div>
               )}
+
             </div>
           </ErrorBoundary>
         </motion.div>

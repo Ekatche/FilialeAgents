@@ -20,7 +20,7 @@ export function SearchPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  const handleSearch = async (query: string, isURL = false) => {
+  const handleSearch = async (query: string, isURL = false, deepSearch = false) => {
     if (!query.trim()) {
       toast.error("Veuillez entrer un nom d'entreprise ou une URL");
       return;
@@ -34,9 +34,9 @@ export function SearchPage() {
       const searchType = isURL ? "url" : "name";
 
       // Rediriger vers la page de résultats avec les paramètres
-      router.push(`/results?query=${encodedQuery}&type=${searchType}`);
+      router.push(`/results?query=${encodedQuery}&type=${searchType}&deepSearch=${deepSearch}`);
 
-      toast.success("Recherche lancée...");
+      toast.success(deepSearch ? "Recherche approfondie lancée..." : "Recherche lancée...");
     } catch (error) {
       console.error("Erreur lors de la navigation:", error);
       toast.error("Erreur lors de la navigation");

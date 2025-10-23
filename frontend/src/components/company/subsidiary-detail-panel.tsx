@@ -20,16 +20,34 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SubsidiaryDetail } from "@/lib/api";
 
+// Type pour les présences commerciales
+interface CommercialPresence {
+  name: string;
+  type: "office" | "partner" | "distributor" | "representative";
+  relationship: "owned" | "partnership" | "authorized_distributor" | "franchise";
+  activity?: string;
+  location?: {
+    city?: string;
+    country?: string;
+    phone?: string;
+    email?: string;
+  };
+  confidence?: number;
+  status?: "active" | "inactive" | "unverified";
+}
+
 interface SubsidiaryDetailPanelProps {
   subsidiary: SubsidiaryDetail | null;
+  commercialPresence?: CommercialPresence | null;
   onClose: () => void;
 }
 
 export function SubsidiaryDetailPanel({
   subsidiary,
+  commercialPresence,
   onClose,
 }: SubsidiaryDetailPanelProps) {
-  if (!subsidiary) return null;
+  if (!subsidiary && !commercialPresence) return null;
 
   return (
     <motion.div
@@ -43,13 +61,13 @@ export function SubsidiaryDetailPanel({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
-              <Building className="w-5 h-5 text-blue-600" />
+              <Building className={`w-5 h-5 ${subsidiary ? 'text-blue-600' : 'text-green-600'}`} />
               <div>
                 <CardTitle className="text-lg">
-                  {subsidiary.legal_name}
+                  {subsidiary?.legal_name || commercialPresence?.name}
                 </CardTitle>
                 <CardDescription className="text-sm">
-                  Filiale sélectionnée
+                  {subsidiary ? '🏢 Filiale juridique' : '🏢 Présence commerciale'}
                 </CardDescription>
               </div>
             </div>
@@ -65,8 +83,12 @@ export function SubsidiaryDetailPanel({
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* Siège social */}
-          {subsidiary.headquarters && (
+          {/* Affichage conditionnel selon le type d'entité */}
+          {subsidiary ? (
+            // Affichage pour filiale juridique
+            <>
+              {/* Siège social */}
+              {subsidiary.headquarters && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-gray-500" />
@@ -218,6 +240,110 @@ export function SubsidiaryDetailPanel({
                 )}
               </div>
             </div>
+          )}
+            </>
+          ) : (
+            // Affichage pour présence commerciale
+            <>
+              {/* Type et relation */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium">Type</span>
+                </div>
+                <div className="pl-6">
+                  <Badge variant="outline" className="text-xs">
+                    {commercialPresence?.type}
+                  </Badge>
+                  <span className="ml-2 text-sm text-gray-600">
+                    ({commercialPresence?.relationship})
+                  </span>
+                </div>
+              </div>
+
+              {/* Activité */}
+              {commercialPresence?.activity && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium">Activité</span>
+                  </div>
+                  <div className="pl-6">
+                    <p className="text-sm text-gray-600">
+                      {commercialPresence.activity}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Localisation */}
+              {commercialPresence?.location && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium">Localisation</span>
+                  </div>
+                  <div className="pl-6 space-y-1">
+                    {commercialPresence.location.city && (
+                      <p className="text-sm text-gray-600">
+                        {commercialPresence.location.city}
+                        {commercialPresence.location.country && 
+                          `, ${commercialPresence.location.country}`}
+                      </p>
+                    )}
+                    {commercialPresence.location.phone && (
+                      <p className="text-sm text-gray-600">
+                        📞 {commercialPresence.location.phone}
+                      </p>
+                    )}
+                    {commercialPresence.location.email && (
+                      <p className="text-sm text-gray-600">
+                        ✉️ {commercialPresence.location.email}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Statut */}
+              {commercialPresence?.status && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Statut</span>
+                  </div>
+                  <div className="pl-6">
+                    <Badge 
+                      variant={commercialPresence.status === 'active' ? 'default' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {commercialPresence.status}
+                    </Badge>
+                  </div>
+                </div>
+              )}
+
+              {/* Score de confiance */}
+              {commercialPresence?.confidence && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Confiance</span>
+                  </div>
+                  <div className="pl-6">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-green-500 h-2 rounded-full" 
+                          style={{ width: `${commercialPresence.confidence * 100}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-xs text-gray-600">
+                        {Math.round(commercialPresence.confidence * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

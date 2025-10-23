@@ -20,6 +20,11 @@ export function formatNumber(num: number) {
 }
 
 export function formatCurrency(amount: string) {
+  // Si le montant contient déjà du texte formaté (comme "Plus de 290 millions d'euros")
+  if (amount.includes("Plus de") || amount.includes("millions") || amount.includes("milliards")) {
+    return amount; // Retourner tel quel si déjà formaté
+  }
+
   // Extract number from string like "$394.3 billion"
   const match = amount.match(/[\d,.]+/);
   if (!match) return amount;

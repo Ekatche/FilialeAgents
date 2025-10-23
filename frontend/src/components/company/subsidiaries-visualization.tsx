@@ -6,6 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L, { LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+// Styles pour différencier les marqueurs
+const markerStyles = `
+  .subsidiary-marker {
+    filter: hue-rotate(200deg) saturate(1.5); /* Bleu pour filiales */
+  }
+  .commercial-marker {
+    filter: hue-rotate(100deg) saturate(1.5); /* Vert pour présences commerciales */
+  }
+`;
 import { SubsidiaryDetail, SiteInfo } from "@/lib/api";
 
 type CountryKey = string;
@@ -131,7 +141,8 @@ const COUNTRY_SYNONYMS: Record<string, CountryKey> = {
 
 const mapCenter: [number, number] = [20, 0];
 
-const defaultIcon = L.icon({
+// Icônes différenciées pour filiales vs présences commerciales
+const subsidiaryIcon = L.icon({
   iconUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
   iconSize: [25, 41],
@@ -140,7 +151,22 @@ const defaultIcon = L.icon({
   shadowUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
   shadowSize: [41, 41],
+  className: "subsidiary-marker" // Pour le style CSS
 });
+
+const commercialIcon = L.icon({
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  shadowSize: [41, 41],
+  className: "commercial-marker" // Pour le style CSS
+});
+
+const defaultIcon = subsidiaryIcon;
 
 function normalizeCountry(value?: string | null): string | null {
   if (!value) return null;
@@ -425,13 +451,27 @@ export function SubsidiariesVisualization({
 
   return (
     <Card className="relative z-10">
+      {/* Injection des styles CSS */}
+      <style dangerouslySetInnerHTML={{ __html: markerStyles }} />
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Building2 className="w-5 h-5 text-blue-600" />
-          Carte mondiale des filiales
+          Carte mondiale des présences commerciales
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Légende pour distinguer les types d'entités */}
+        <div className="flex items-center gap-4 text-sm text-gray-600 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+            <span>Filiales juridiques</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+            <span>Présences commerciales</span>
+          </div>
+        </div>
+        
         <div className="relative bg-gray-50 rounded-lg p-6">
           <MapContainer
             center={mapCenter}
@@ -445,21 +485,27 @@ export function SubsidiariesVisualization({
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            {nodes.map((node) => (
-              <Marker
-                key={node.id}
-                position={[node.latitude, node.longitude]}
-                icon={defaultIcon}
-                eventHandlers={{
-                  click: () => {
-                    setSelectedNode(node);
-                    if (node.subsidiary && onSubsidiarySelect) {
-                      onSubsidiarySelect(node.subsidiary);
-                    }
-                  },
-                }}
-              />
-            ))}
+            {nodes.map((node) => {
+              // Déterminer l'icône selon le type d'entité
+              const isSubsidiary = node.subsidiary !== undefined;
+              const markerIcon = isSubsidiary ? subsidiaryIcon : commercialIcon;
+              
+              return (
+                <Marker
+                  key={node.id}
+                  position={[node.latitude, node.longitude]}
+                  icon={markerIcon}
+                  eventHandlers={{
+                    click: () => {
+                      setSelectedNode(node);
+                      if (node.subsidiary && onSubsidiarySelect) {
+                        onSubsidiarySelect(node.subsidiary);
+                      }
+                    },
+                  }}
+                />
+              );
+            })}
           </MapContainer>
           {!nodes.length && (
             <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">

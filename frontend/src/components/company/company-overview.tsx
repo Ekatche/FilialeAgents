@@ -269,38 +269,50 @@ export function CompanyOverview({ company }: CompanyOverviewProps) {
                 <p className="text-sm font-medium text-muted-foreground mb-2">
                   Sources de données
                 </p>
-                <div className="space-y-2">
-                  {company.sources.map((source, index) => (
-                    <div key={index} className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-medium text-gray-600">
-                          {source.title}
-                        </span>
-                        <Badge
-                          variant={
-                            source.tier === "official"
-                              ? "default"
-                              : source.tier === "financial_media"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          className="text-xs"
-                        >
-                          {source.tier || "autre"}
-                        </Badge>
+                <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
+                  <div className="grid grid-cols-3 gap-2 p-2">
+                    {company.sources.map((source, index) => (
+                      <div
+                        key={index}
+                        className="p-2 border border-gray-200 rounded-md bg-white hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-medium text-gray-600 truncate" title={source.title}>
+                              {source.title}
+                            </span>
+                            <Badge
+                              variant={
+                                source.tier === "official"
+                                  ? "default"
+                                  : source.tier === "financial_media"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                              className="text-xs w-fit"
+                            >
+                              {source.tier || "autre"}
+                            </Badge>
+                          </div>
+                          {source.url && (
+                            <button
+                              onClick={() => window.open(source.url, "_blank")}
+                              className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:text-blue-700 transition-colors duration-200"
+                            >
+                              <Globe className="w-3 h-3" />
+                              Ouvrir
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {source.url && (
-                        <button
-                          onClick={() => window.open(source.url, "_blank")}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:text-blue-700 transition-colors duration-200"
-                        >
-                          <Globe className="w-3 h-3" />
-                          Ouvrir la source
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
+                {company.sources.length > 9 && (
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    {company.sources.length} sources au total
+                  </p>
+                )}
               </div>
             )}
 

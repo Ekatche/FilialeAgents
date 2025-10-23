@@ -6,12 +6,14 @@ export interface CompanyExtractionRequest {
   company_name: string;
   include_subsidiaries?: boolean;
   max_subsidiaries?: number;
+  deep_search?: boolean;
 }
 
 export interface URLExtractionRequest {
   url: string;
   include_subsidiaries?: boolean;
   max_subsidiaries?: number;
+  deep_search?: boolean;
 }
 
 export interface LocationInfo {
@@ -41,6 +43,21 @@ export interface SubsidiaryDetail {
   sources: SourceReference[];
 }
 
+// Type pour la présence commerciale
+export interface CommercialPresence {
+  name: string;
+  type: "office" | "partner" | "distributor" | "representative";
+  relationship: "owned" | "partnership" | "authorized_distributor" | "franchise";
+  activity?: string | null;
+  location: LocationInfo;
+  phone?: string | null;
+  email?: string | null;
+  confidence?: number | null;
+  sources: SourceReference[];
+  since_year?: number | null;
+  status?: "active" | "inactive" | "unverified" | null;
+}
+
 export interface CompanyData {
   company_name: string;
   headquarters_address: string;
@@ -55,6 +72,10 @@ export interface CompanyData {
   phone?: string | null;
   email?: string | null;
   subsidiaries_details: SubsidiaryDetail[];
+  
+  // 🆕 NOUVEAU : Présence commerciale
+  commercial_presence_details: CommercialPresence[];
+  
   sources: SourceReference[];
   methodology_notes?: string[] | null;
   extraction_metadata?: ExtractionMetadata | null;

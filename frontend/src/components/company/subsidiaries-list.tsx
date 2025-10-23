@@ -173,7 +173,6 @@ function SubsidiaryCard({ subsidiary, index }: SubsidiaryCardProps) {
                     </h4>
                     <div className="flex flex-wrap gap-2">
                       {subsidiary.sources.map((source, idx) => {
-                        const displayLabel = source.title || "Source";
                         const isUrl = Boolean(source.url);
 
                         return (
@@ -196,16 +195,10 @@ function SubsidiaryCard({ subsidiary, index }: SubsidiaryCardProps) {
                                 : undefined
                             }
                           >
-                            {isUrl ? (
-                              <div className="flex items-center gap-1">
-                                <ExternalLink className="w-3 h-3" />
-                                {displayLabel.length > 40
-                                  ? `${displayLabel.substring(0, 40)}...`
-                                  : displayLabel}
-                              </div>
-                            ) : (
-                              displayLabel
-                            )}
+                            <div className="flex items-center gap-1">
+                              <ExternalLink className="w-3 h-3" />
+                              Voir la source {idx + 1}
+                            </div>
                           </Badge>
                         );
                       })}
