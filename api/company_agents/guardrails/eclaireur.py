@@ -218,12 +218,14 @@ async def eclaireur_output_guardrail(ctx, agent, output: Dict[str, Any]) -> Guar
             if not on_domain_sources:
                 violations.append(f"Aucune source on-domain trouvée pour {input_domain}")
         
-        # RÈGLE 3: Vérifier ACTIVEMENT l'accessibilité des URLs
+        # RÈGLE 3: Vérifier ACTIVEMENT l'accessibilité des URLs (MODES URL ET NOM)
+        # Vérification systématique mais avec seuils de tolérance différents selon le mode
         logger.info(f"🔍 Vérification active de {len(sources)} sources...")
         accessibility_check = await _check_sources_accessibility(sources)
         
         dead_links_info = accessibility_check.get("dead_links", [])
-        accessible_count = len(accessibility_check.get("accessible_sources", []))
+        accessible_sources = accessibility_check.get("accessible_sources", [])
+        accessible_count = len(accessible_sources)
         
         # Extraire les URLs mortes avec détails pour le hint de correction
         for dead_link in dead_links_info:
@@ -237,14 +239,48 @@ async def eclaireur_output_guardrail(ctx, agent, output: Dict[str, Any]) -> Guar
             else:
                 removed_dead_links.append(f"{url} ({error})")
         
-        # Si des liens morts sont détectés, enregistrer
-        if removed_dead_links:
-            # Construire le message d'erreur sans f-strings imbriqués
-            dead_link_details = [f"{dl['url']} ({dl['error']})" for dl in dead_links_info[:2]]
-            violations.append(
-                f"URLs inaccessibles détectées ({len(removed_dead_links)}/{len(sources)}): "
-                f"{', '.join(dead_link_details)}"
-            )
+        # Décision selon le mode
+        if is_url_mode:
+            # MODE URL : Strict - Au moins 1 source on-domain accessible requise
+            if removed_dead_links:
+                # Vérifier si au moins 1 source on-domain est accessible
+                accessible_on_domain = [
+                    src for src in accessible_sources 
+                    if _extract_domain(src) == input_domain
+                ]
+                
+                if not accessible_on_domain:
+                    # Aucune source on-domain accessible : VIOLATION CRITIQUE
+                    dead_link_details = [f"{dl['url']} ({dl['error']})" for dl in dead_links_info[:2]]
+                    violations.append(
+                        f"URLs inaccessibles détectées en MODE URL ({len(removed_dead_links)}/{len(sources)}): "
+                        f"{', '.join(dead_link_details)}. Au moins 1 source on-domain accessible requise."
+                    )
+                else:
+                    # Au moins 1 source on-domain accessible : WARNING mais pas de violation
+                    logger.warning(
+                        f"⚠️ {len(removed_dead_links)} URL(s) inaccessible(s) en MODE URL, "
+                        f"mais {len(accessible_on_domain)} source(s) on-domain accessible(s) trouvée(s)"
+                    )
+        else:
+            # MODE NOM : Tolérant - Signaler mais ne pas bloquer
+            if removed_dead_links:
+                dead_link_count = len(removed_dead_links)
+                accessible_ratio = accessible_count / len(sources) if sources else 0
+                
+                # Bloquer uniquement si TOUTES les URLs sont inaccessibles
+                if accessible_count == 0:
+                    dead_link_details = [f"{dl['url']} ({dl['error']})" for dl in dead_links_info[:2]]
+                    violations.append(
+                        f"TOUTES les URLs sont inaccessibles en MODE NOM ({len(sources)} sources): "
+                        f"{', '.join(dead_link_details)}"
+                    )
+                else:
+                    # Au moins 1 URL accessible : WARNING mais pas de violation
+                    logger.warning(
+                        f"⚠️ {dead_link_count} URL(s) inaccessible(s) en MODE NOM "
+                        f"({accessible_count}/{len(sources)} accessibles, ratio: {accessible_ratio:.1%})"
+                    )
         
         # Décision : déclencher le tripwire si violations critiques
         if violations:

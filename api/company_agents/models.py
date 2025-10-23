@@ -107,6 +107,8 @@ class CompanyCard(BaseModel):
     employees: Optional[str] = Field(default=None, max_length=100)
     founded_year: Optional[int] = Field(default=None, ge=1800, le=2030)
     context: Optional[str] = Field(default=None, max_length=500, description="Contexte enrichi pour la recherche de filiales")
+    enterprise_type: Optional[Literal["complex", "simple"]] = Field(default=None, description="Type d'entreprise: complex (grand groupe) ou simple (PME)")
+    has_filiales_only: Optional[bool] = Field(default=None, description="L'entreprise possède-t-elle UNIQUEMENT des filiales juridiques (true) ou un mélange filiales+bureaux/distributeurs (false) ?")
     sources: List[SourceRef] = Field(..., min_length=2, max_length=7)
 
 
@@ -129,6 +131,38 @@ class Subsidiary(BaseModel):
     sources: List[SourceRef] = Field(..., min_length=1, max_length=10)  # Augmenté pour permettre plus de sources
 
 
+class CommercialPresence(BaseModel):
+    """Présence commerciale sans filiale juridique"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str = Field(..., min_length=1, max_length=200, description="Nom du bureau/partenaire/distributeur")
+    type: Literal["office", "partner", "distributor", "representative"] = Field(
+        ...,
+        description="Type de présence : bureau commercial, partenaire, distributeur, représentant"
+    )
+    relationship: Literal["owned", "partnership", "authorized_distributor", "franchise"] = Field(
+        ...,
+        description="Nature de la relation : propriété, partenariat, distributeur autorisé, franchise"
+    )
+    activity: Optional[str] = Field(default=None, max_length=300, description="Activité spécifique")
+    
+    # Localisation
+    location: LocationInfo = Field(..., description="Localisation du bureau/partenaire")
+    
+    # Contacts (optionnels, peuvent être dans location aussi)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=100)
+    
+    # Métadonnées
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    sources: List[SourceRef] = Field(..., min_length=1, max_length=5)
+    
+    # Informations additionnelles
+    since_year: Optional[int] = Field(default=None, ge=1900, le=2030, description="Année d'établissement")
+    status: Optional[Literal["active", "inactive", "unverified"]] = Field(default="unverified")
+
+
 class MainCompanyInfo(BaseModel):
     """Informations sur l'entreprise principale (quand pas de filiales)"""
 
@@ -141,18 +175,42 @@ class MainCompanyInfo(BaseModel):
     email: Optional[str] = Field(default=None, max_length=100)
 
 
+class PresenceByType(BaseModel):
+    """Répartition des présences commerciales par type"""
+    
+    model_config = ConfigDict(extra="forbid", strict=True)
+    
+    office: Optional[int] = Field(default=0, ge=0)
+    partner: Optional[int] = Field(default=0, ge=0)
+    distributor: Optional[int] = Field(default=0, ge=0)
+    representative: Optional[int] = Field(default=0, ge=0)
+
+
 class ExtractionSummary(BaseModel):
     """Résumé d'extraction"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    total_found: int = Field(..., ge=0)
+    total_found: int = Field(..., ge=0, description="Nombre total de filiales juridiques")
+    
+    # 🆕 NOUVEAU : Statistiques présence commerciale
+    total_commercial_presence: Optional[int] = Field(default=0, ge=0, description="Nombre de présences commerciales")
+    presence_by_type: Optional[PresenceByType] = Field(
+        default=None,
+        description="Répartition par type de présence commerciale"
+    )
+    countries_covered: Optional[List[str]] = Field(
+        default=None,
+        max_length=50,
+        description="Liste des pays avec présence (filiales + commerciale)"
+    )
+    
     main_company_info: Optional[MainCompanyInfo] = Field(default=None)
     methodology_used: Optional[List[str]] = Field(default=None, max_length=5)
 
 
 class SubsidiaryReport(BaseModel):
-    """Rapport complet des filiales (output Subsidiary Extractor)"""
+    """Rapport complet des filiales ET présence commerciale (output Subsidiary Extractor)"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -166,6 +224,14 @@ class SubsidiaryReport(BaseModel):
     
     parents: List[ParentRef] = Field(default_factory=list, max_length=3)
     subsidiaries: List[Subsidiary] = Field(default_factory=list, max_length=10)
+    
+    # 🆕 NOUVEAU : Présence commerciale
+    commercial_presence: List[CommercialPresence] = Field(
+        default_factory=list, 
+        max_length=20,
+        description="Bureaux commerciaux, partenaires, distributeurs sans personnalité juridique"
+    )
+    
     methodology_notes: Optional[List[str]] = Field(default=None, max_length=15)  # Augmenté pour plus de détails
     extraction_summary: Optional[ExtractionSummary] = Field(default=None)
 
@@ -214,9 +280,18 @@ class CompanyInfo(BaseModel):
     founded_year: Optional[int] = Field(default=None, ge=1800, le=2030)
     phone: Optional[str] = Field(default=None, max_length=50)
     email: Optional[str] = Field(default=None, max_length=100)
+    # Filiales juridiques
     subsidiaries_details: List[SubsidiaryDetail] = Field(
         default_factory=list, max_length=10
     )
+    
+    # 🆕 NOUVEAU : Présence commerciale
+    commercial_presence_details: List[CommercialPresence] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Bureaux, partenaires, distributeurs"
+    )
+    
     sources: List[SourceRef] = Field(..., min_length=2, max_length=7)
     methodology_notes: Optional[List[str]] = Field(default=None, max_length=6)
     extraction_metadata: Optional[ExtractionMetadata] = Field(default=None)

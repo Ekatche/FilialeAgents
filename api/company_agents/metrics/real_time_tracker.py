@@ -42,17 +42,26 @@ class RealTimeTracker:
     async def _send_metrics_update(self, agent_name: str, session_id: str, agent_metrics: AgentMetrics):
         """Envoie une mise à jour des métriques via WebSocket"""
         try:
-            # Préparer les métriques pour le frontend
+            # Calculer le temps écoulé
+            elapsed_time = agent_metrics.total_duration_ms or int((time.time() - agent_metrics.start_time) * 1000)
+            
+            # Préparer les métriques de base pour le frontend
             frontend_metrics = {
                 "current_step": agent_metrics.get_current_step().step_name if agent_metrics.get_current_step() else "Finalisation",
                 "total_steps": len(agent_metrics.steps),
                 "completed_steps": sum(1 for step in agent_metrics.steps if step.end_time is not None),
                 "progress_percentage": agent_metrics.get_progress_percentage(),
-                "elapsed_time": agent_metrics.total_duration_ms or int((time.time() - agent_metrics.start_time) * 1000),
-                "quality_metrics": agent_metrics.quality_metrics,
-                "performance_metrics": agent_metrics.performance_metrics,
+                "elapsed_time": elapsed_time,
                 "status": agent_metrics.status.value
             }
+            
+            # Ajouter les quality_metrics si disponibles (incluent subsidiaries_found, citations_count, etc.)
+            if agent_metrics.quality_metrics:
+                frontend_metrics.update(agent_metrics.quality_metrics)
+            
+            # Ajouter les performance_metrics si disponibles
+            if agent_metrics.performance_metrics:
+                frontend_metrics.update(agent_metrics.performance_metrics)
             
             # Envoyer via le status manager
             await self.status_manager.update_agent_status_detailed(
@@ -75,6 +84,34 @@ class RealTimeTracker:
             # Métriques finales complètes
             final_metrics = agent_metrics.to_dict()
             
+            # Préparer les performance_metrics avec TOUTES les métriques disponibles
+            performance_metrics = {
+                "elapsed_time": agent_metrics.total_duration_ms,
+                "quality_score": agent_metrics.quality_metrics.get("confidence_score", 0),
+                "error_rate": 1.0 if agent_metrics.status == MetricStatus.ERROR else 0.0,
+                "final_status": agent_metrics.status.value,
+                "steps_completed": len(agent_metrics.steps),
+                "total_steps": len(agent_metrics.steps)
+            }
+            
+            # Ajouter les métriques de qualité spécifiques (ex: Cartographe)
+            if agent_metrics.quality_metrics:
+                # Cartographe: subsidiaries_found, citations_count
+                if "subsidiaries_found" in agent_metrics.quality_metrics:
+                    performance_metrics["subsidiaries_found"] = agent_metrics.quality_metrics["subsidiaries_found"]
+                if "citations_count" in agent_metrics.quality_metrics:
+                    performance_metrics["citations_count"] = agent_metrics.quality_metrics["citations_count"]
+                
+                # Autres agents: items_count, items_processed
+                if "items_count" in agent_metrics.quality_metrics:
+                    performance_metrics["items_processed"] = agent_metrics.quality_metrics["items_count"]
+                if "items_processed" in agent_metrics.quality_metrics:
+                    performance_metrics["items_processed"] = agent_metrics.quality_metrics["items_processed"]
+            
+            # Ajouter les performance_metrics de l'agent si disponibles
+            if agent_metrics.performance_metrics:
+                performance_metrics.update(agent_metrics.performance_metrics)
+            
             await self.status_manager.update_agent_status_detailed(
                 session_id=session_id,
                 agent_name=agent_name,
@@ -83,13 +120,7 @@ class RealTimeTracker:
                 message=f"Terminé - {agent_metrics.total_duration_ms}ms" if agent_metrics.status == MetricStatus.COMPLETED else f"Erreur: {agent_metrics.error_details}",
                 current_step=len(agent_metrics.steps),
                 total_steps=len(agent_metrics.steps),
-                performance_metrics={
-                    "elapsed_time": agent_metrics.total_duration_ms,
-                    "quality_score": agent_metrics.quality_metrics.get("confidence_score", 0),
-                    "items_processed": agent_metrics.quality_metrics.get("items_count", 0),
-                    "error_rate": 1.0 if agent_metrics.status == MetricStatus.ERROR else 0.0,
-                    "final_status": agent_metrics.status.value
-                }
+                performance_metrics=performance_metrics
             )
             
             logger.info(f"📊 Métriques finales envoyées pour {agent_name}: {final_metrics}")

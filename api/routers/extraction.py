@@ -28,17 +28,19 @@ async def _run_extraction_background(
     session_id: str,
     input_query: str,
     include_subsidiaries: bool = True,
+    deep_search: bool = False,
 ):
     """
     Exécute l'extraction en arrière-plan et gère le tracking
     """
     try:
-        logger.info("🚀 Démarrage extraction background: %s", session_id)
+        logger.info("🚀 Démarrage extraction background: %s (deep_search=%s)", session_id, deep_search)
 
         result = await extract_company_data(
             input_query,
             session_id=session_id,
             include_subsidiaries=include_subsidiaries,
+            deep_search=deep_search,
         )
 
         logger.info("✅ Extraction background terminée: %s", session_id)
@@ -84,14 +86,18 @@ async def extract_company_info(request: CompanyExtractionRequest):
         company_name = clean_company_name(request.company_name)
 
         logger.info(
-            "🔍 Début de l'extraction pour: %s [Session: %s]",
+            "🔍 Début de l'extraction pour: %s [Session: %s] (deep_search=%s)",
             company_name,
             session_id,
+            request.deep_search,
         )
 
         # Extraction des données
         result_dict = await extract_company_data(
-            company_name, session_id=session_id, include_subsidiaries=True
+            company_name,
+            session_id=session_id,
+            include_subsidiaries=True,
+            deep_search=request.deep_search or False,
         )
 
         logger.info(
@@ -133,9 +139,10 @@ async def extract_company_from_url(request: URLExtractionRequest):
             )
 
         logger.info(
-            "🔍 Début de l'extraction depuis URL: %s [Session: %s]",
+            "🔍 Début de l'extraction depuis URL: %s [Session: %s] (deep_search=%s)",
             cleaned_url,
             session_id,
+            request.deep_search,
         )
 
         # Extraction des données
@@ -143,6 +150,7 @@ async def extract_company_from_url(request: URLExtractionRequest):
             cleaned_url,
             session_id=session_id,
             include_subsidiaries=request.include_subsidiaries,
+            deep_search=request.deep_search or False,
         )
 
         logger.info(
@@ -199,6 +207,7 @@ async def extract_company_info_async(request: CompanyExtractionRequest):
                 session_id=session_id,
                 input_query=company_name,
                 include_subsidiaries=True,
+                deep_search=request.deep_search or False,
             )
         )
 
@@ -257,6 +266,7 @@ async def extract_company_from_url_async(request: URLExtractionRequest):
                 session_id=session_id,
                 input_query=cleaned_url,
                 include_subsidiaries=request.include_subsidiaries or True,
+                deep_search=request.deep_search or False,
             )
         )
 

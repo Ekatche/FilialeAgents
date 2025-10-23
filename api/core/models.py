@@ -10,6 +10,10 @@ class CompanyExtractionRequest(BaseModel):
     """Requête pour l'extraction d'informations d'entreprise"""
 
     company_name: str = Field(description="Nom de l'entreprise à analyser")
+    deep_search: Optional[bool] = Field(
+        default=False,
+        description="Mode de recherche approfondie (Perplexity) vs simple (GPT-4o-search)"
+    )
 
 
 class URLExtractionRequest(BaseModel):
@@ -21,6 +25,10 @@ class URLExtractionRequest(BaseModel):
     )
     max_subsidiaries: Optional[int] = Field(
         default=50, description="Nombre maximum de filiales"
+    )
+    deep_search: Optional[bool] = Field(
+        default=False,
+        description="Mode de recherche approfondie (Perplexity) vs simple (GPT-4o-search)"
     )
 
 

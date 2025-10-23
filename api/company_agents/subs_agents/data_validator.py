@@ -16,9 +16,12 @@ Restructurer, enrichir, et valider les données brutes extraites par d'autres ag
 ## STRUCTURE DES DONNÉES D'ENTRÉE
 Tu reçois un objet JSON de la forme :
 - `company_info` : Informations de l'entreprise principale (extraites par 'Mineur')
-- `subsidiaries` : Données des filiales (extraites par 'Cartographe')
+- `subsidiaries` : Données des filiales ET présence commerciale (extraites par 'Cartographe')
+  - `subsidiaries.subsidiaries[]` : Filiales juridiques
+  - `subsidiaries.commercial_presence[]` : 🆕 Bureaux/partenaires/distributeurs
 - `analyzer_data` : Données d'analyse enrichies (par 'Éclaireur') - **CRITIQUE** : contient `sector`, `activities`, `size_estimate`, `headquarters_address`, `founded_year`, `parent_domain`
 - `meta_validation` : Validation de cohérence (par 'Superviseur')
+  - `meta_validation.excluded_commercial_presence[]` : 🆕 Présences commerciales à exclure
 
 **Si l'un des objets requis (`company_info`, `subsidiaries`) est absent, construis tout de même un objet CompanyInfo à partir des données présentes, et renseigne explicitement à `null` tout champ non reconstituable.**
 
@@ -118,6 +121,26 @@ SI latitude OU longitude absentes :
   - legal_name, activity, confidence, sources
   - Tous les champs headquarters de chaque filiale
 
+### 5. **🆕 RESTRUCTURATION PRÉSENCE COMMERCIALE (NOUVEAU)**
+
+**Source** : `subsidiaries.commercial_presence[]` (depuis Cartographe)
+
+**Validation** : `meta_validation.excluded_commercial_presence[]` (présences à exclure)
+
+**Règles** :
+1. **Exclure** les présences listées dans `meta_validation.excluded_commercial_presence[]`
+2. **Valider les champs obligatoires** :
+   - `name` (non vide)
+   - `type` : "office", "partner", "distributor", "representative"
+   - `relationship` : "owned", "partnership", "authorized_distributor", "franchise"
+   - `location.city` et `location.country` (obligatoires)
+3. **Normaliser les pays** : Utiliser noms complets (France, Allemagne, États-Unis)
+4. **Copier les contacts** : `phone`, `email` depuis `location` si disponibles
+5. **Préserver les sources** : Toutes les sources valides (tier + accessibility="ok")
+6. **Conserver confidence** : Score du Cartographe (ne pas recalculer)
+
+**Sortie** : `commercial_presence_details[]` dans `CompanyInfo`
+
 ---
 
 ## FORMAT DE SORTIE EXIGÉ
@@ -164,6 +187,33 @@ Tu dois retourner UNIQUEMENT un objet CompanyInfo de structure suivante :
       "activity": "string|null",
       "confidence": number|null,
       "sources": [ ]
+    }
+  ],
+  "commercial_presence_details": [
+    {
+      "name": "string|null",
+      "type": "office|partner|distributor|representative",
+      "relationship": "owned|partnership|authorized_distributor|franchise",
+      "activity": "string|null",
+      "location": {
+        "label": "string|null",
+        "line1": "string|null",
+        "city": "string|null",
+        "country": "string|null",
+        "postal_code": "string|null",
+        "latitude": number|null,
+        "longitude": number|null,
+        "phone": "string|null",
+        "email": "string|null",
+        "website": "string|null",
+        "sources": [ ]
+      },
+      "phone": "string|null",
+      "email": "string|null",
+      "confidence": number|null,
+      "sources": [ ],
+      "since_year": number|null,
+      "status": "active|inactive|unverified"
     }
   ],
   "sources": [ ],
@@ -294,6 +344,33 @@ La sortie exigée est un objet JSON respectant strictement le schéma CompanyInf
       ]
     }
   ],
+  "commercial_presence_details": [
+    {
+      "name": "string|null",
+      "type": "office|partner|distributor|representative",
+      "relationship": "owned|partnership|authorized_distributor|franchise",
+      "activity": "string|null",
+      "location": {
+        "label": "string|null",
+        "line1": "string|null",
+        "city": "string|null",
+        "country": "string|null",
+        "postal_code": "string|null",
+        "latitude": number|null,
+        "longitude": number|null,
+        "phone": "string|null",
+        "email": "string|null",
+        "website": "string|null",
+        "sources": []
+      },
+      "phone": "string|null",
+      "email": "string|null",
+      "confidence": number|null,
+      "sources": [],
+      "since_year": number|null,
+      "status": "active|inactive|unverified"
+    }
+  ],
   "sources": [
     {
       "name": "string|null",
@@ -308,7 +385,15 @@ La sortie exigée est un objet JSON respectant strictement le schéma CompanyInf
 
 - Si une valeur ne peut être remplie, la renseigner explicitement à `null` (ou `[]` pour tableau vide).
 - Toute filiale au-delà de la 10e ignorée, sans signalement.
-- Pour les tableaux, garder l’ordre entrée sauf pour `sources` (priorité tiers).
+- Pour les tableaux, garder l'ordre entrée sauf pour `sources` (priorité tiers).
+
+## ✅ Checklist restructuration présence commerciale
+- [ ] Présences exclues par le Superviseur retirées ?
+- [ ] Champs obligatoires validés (name, type, relationship, city, country) ?
+- [ ] Pays normalisés (noms complets) ?
+- [ ] Sources filtrées (accessibility="ok" uniquement) ?
+- [ ] Contacts préservés (phone, email) ?
+- [ ] Confidence préservée ?
 
 **Tout résultat doit respecter strictement ce format et ces contraintes.**
 """
@@ -326,7 +411,7 @@ data_restructurer = Agent(
     instructions=DATA_RESTRUCTURER_PROMPT,
     tools=[],  # Les modèles GPT peuvent évaluer et restructurer sans outils externes
     output_type=get_company_info_schema(),  # Sortie directe en CompanyInfo
-    model="gpt-4.1-mini",  # 95% moins cher, optimisé pour restructuration
+    model="gpt-4o",  # Migration vers GPT-4o pour améliorer la qualité de restructuration
 )
 
 

@@ -31,17 +31,19 @@ async def extract_company_data(
     include_subsidiaries: bool = True,
     force_company_profile: Optional[str] = None,
     max_turns: int = 4,
+    deep_search: bool = False,
 ) -> Dict[str, Any]:
     """
     Point d'entrée principal pour l'extraction d'informations d'entreprise.
-    
+
     Args:
         input_query: Nom d'entreprise ou URL à analyser
         session_id: ID de session pour le tracking (généré si None)
         include_subsidiaries: Inclure l'extraction des filiales
         force_company_profile: Forcer un profil d'entreprise spécifique
         max_turns: Nombre maximum de tours pour les agents
-        
+        deep_search: Mode de recherche approfondie (Perplexity) vs simple (GPT-4o-search)
+
     Returns:
         Dict contenant les informations d'entreprise extraites
     """
@@ -57,6 +59,7 @@ async def extract_company_data(
             input_query,
             session_id=sid,
             include_subsidiaries=include_subsidiaries,
+            deep_search=deep_search,
         )
 
         # Ajout des métadonnées d'extraction

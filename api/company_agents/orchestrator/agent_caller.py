@@ -457,7 +457,11 @@ async def call_subsidiary_extractor(state: ExtractionState) -> Dict[str, Any]:
         }
         
         # Exécuter l'agent avec métriques détaillées (gère ses propres métriques)
-        cartographe_result = await run_cartographe_with_metrics(company_context, state.session_id)
+        cartographe_result = await run_cartographe_with_metrics(
+            company_context,
+            state.session_id,
+            deep_search=state.deep_search
+        )
         
     except Exception as e:
         logger.error("❌ Erreur lors de la cartographie: %s", str(e))

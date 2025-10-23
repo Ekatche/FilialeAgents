@@ -30,6 +30,7 @@ class ExtractionState:
     session_id: str
     raw_input: str
     include_subsidiaries: bool = True
+    deep_search: bool = False
     target_entity: Optional[str] = None
     info_card: Optional[Dict[str, Any]] = None
     info_raw: Optional[Dict[str, Any]] = None
@@ -119,6 +120,7 @@ async def orchestrate_extraction(
     *,
     session_id: str,
     include_subsidiaries: bool = True,
+    deep_search: bool = False,
 ) -> Dict[str, Any]:
     """
     Orchestrateur principal du pipeline d'extraction multi-agents.
@@ -134,16 +136,18 @@ async def orchestrate_extraction(
         raw_input: Entrée brute de l'utilisateur
         session_id: ID de session unique
         include_subsidiaries: Inclure l'extraction des filiales
+        deep_search: Mode de recherche approfondie (Perplexity) vs simple (GPT-4o-search)
 
     Returns:
         Données d'entreprise extraites et validées
     """
-    logger.info("🚀 Démarrage de l'orchestration d'extraction pour session=%s", session_id)
+    logger.info("🚀 Démarrage de l'orchestration d'extraction pour session=%s (deep_search=%s)", session_id, deep_search)
 
     state = ExtractionState(
         session_id=session_id,
         raw_input=raw_input,
         include_subsidiaries=include_subsidiaries,
+        deep_search=deep_search,
     )
 
     try:
