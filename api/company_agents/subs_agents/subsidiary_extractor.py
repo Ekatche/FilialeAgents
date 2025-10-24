@@ -323,6 +323,8 @@ Continue à l'étape 3 pour structurer ces données en JSON.
 - **Validation source** : Toute info doit être tracée dans le texte
 - **En cas de doute** : Utilise `null`, ne suppose rien
 - **Classification par défaut** : Si nature juridique incertaine → `commercial_presence` type="office", confidence: 0.5
+- **Usines et centres R&D** : Toujours inclure en `commercial_presence` type="office" si mentionnés
+- **Bureaux commerciaux** : Toujours inclure en `commercial_presence` type="office" si mentionnés
 
 ## 📋 Extraction filiales juridiques (CRITÈRES ASSOUPLIS)
 Pour chaque filiale dans `research_text` :
@@ -530,6 +532,21 @@ Vérifie cohérence pays/ville AVANT inclusion :
 - [ ] **`commercial_presence[]` peuplée si bureaux/partenaires trouvés ?**
 - [ ] Si texte long : traité par sections ?
 - [ ] **Principe appliqué : Inclure avec faible confidence plutôt qu'exclure ?**
+- [ ] **Usines et centres R&D inclus** même avec informations partielles ?
+- [ ] **Bureaux commerciaux inclus** même avec informations partielles ?
+
+## 🏭 INSTRUCTIONS SPÉCIALES POUR USINES ET CENTRES R&D
+**ENTITÉS À TOUJOURS INCLURE :**
+- **Usines** : manufacturing facilities, plants, production sites
+- **Centres R&D** : research centers, R&D facilities, laboratories
+- **Bureaux commerciaux** : offices, branches, commercial offices
+
+**RÈGLES D'INCLUSION :**
+- Si mentionné dans `research_text` avec pays identifiable → INCLURE
+- Même si informations partielles (ville manquante, contacts manquants)
+- Classer en `commercial_presence` type="office"
+- Utiliser `confidence` 0.4-0.6 pour informations partielles
+- Utiliser `confidence` 0.7-0.9 pour informations complètes
 
 """
 
@@ -604,6 +621,35 @@ Après l'appel, vérifie `status` dans la réponse :
 - Agent commercial, représentant
 - Exemple : "Agent commercial pour l'Espagne"
 
+## ✅ ENTITÉS À INCLURE OBLIGATOIREMENT
+**PRINCIPE FONDAMENTAL : Mieux vaut inclure avec faible confidence que exclure totalement**
+
+**ENTITÉS VALIDES À TOUJOURS INCLURE :**
+- **Filiales juridiques** : SAS, GmbH, Inc, Ltd, SARL, LLC, BV, etc.
+- **Bureaux commerciaux** : offices, branches, agences, succursales
+- **Distributeurs officiels** : partners, authorized dealers, revendeurs
+- **Usines et centres de production** : manufacturing facilities, plants
+- **Centres R&D et laboratoires** : research centers, R&D facilities
+- **Représentants commerciaux** : agents, representatives
+
+**RÈGLE D'INCLUSION ASSOUPLIE :**
+- Si entité mentionnée dans `research_text` avec pays identifiable → INCLURE
+- Même si informations partielles (ville manquante, contacts manquants, etc.)
+- Utiliser `confidence` faible (0.3-0.6) pour informations partielles
+- Utiliser `confidence` élevée (0.7-0.9) pour informations complètes
+
+## 🏢 RÈGLE SPÉCIALE POUR SITE OFFICIEL
+**ENTITÉS MENTIONNÉES SUR SITE OFFICIEL :**
+- Si entité mentionnée sur site officiel du groupe → confidence: 0.5 (50%) MINIMUM
+- Même si informations partielles (ville manquante, contacts manquants)
+- Toujours inclure avec confidence 0.5-0.6
+- Principe : Site officiel = source fiable, donc confidence minimum garantie
+
+**EXEMPLES :**
+- "ACOEM India Manufacturing Site" mentionné sur acoem.com → confidence: 0.5
+- "ACOEM R&D Center" mentionné sur acoem.com → confidence: 0.5
+- "Bureau commercial" mentionné sur site officiel → confidence: 0.5
+
 ## 🚫 Anti-hallucination (RÈGLES ASSOUPLIES)
 - **Copie exacte** : Ne JAMAIS inventer adresse, ville, téléphone, email
 - **Localisation flexible** :
@@ -612,6 +658,8 @@ Après l'appel, vérifie `status` dans la réponse :
 - **Validation source** : Toute info doit être tracée dans le texte
 - **En cas de doute** : Utilise `null`, ne suppose rien
 - **Classification par défaut** : Si nature juridique incertaine → `commercial_presence` type="office", confidence: 0.5
+- **Usines et centres R&D** : Toujours inclure en `commercial_presence` type="office" si mentionnés
+- **Bureaux commerciaux** : Toujours inclure en `commercial_presence` type="office" si mentionnés
 
 ## 📋 Extraction filiales juridiques (CRITÈRES ASSOUPLIS)
 Pour chaque filiale dans `research_text` :
@@ -731,6 +779,21 @@ Vérifie cohérence pays/ville AVANT inclusion :
 - [ ] **`commercial_presence[]` peuplée si bureaux/partenaires trouvés ?**
 - [ ] Si texte long : traité par sections ?
 - [ ] **Principe appliqué : Inclure avec faible confidence plutôt qu'exclure ?**
+- [ ] **Usines et centres R&D inclus** même avec informations partielles ?
+- [ ] **Bureaux commerciaux inclus** même avec informations partielles ?
+
+## 🏭 INSTRUCTIONS SPÉCIALES POUR USINES ET CENTRES R&D
+**ENTITÉS À TOUJOURS INCLURE :**
+- **Usines** : manufacturing facilities, plants, production sites
+- **Centres R&D** : research centers, R&D facilities, laboratories
+- **Bureaux commerciaux** : offices, branches, commercial offices
+
+**RÈGLES D'INCLUSION :**
+- Si mentionné dans `research_text` avec pays identifiable → INCLURE
+- Même si informations partielles (ville manquante, contacts manquants)
+- Classer en `commercial_presence` type="office"
+- Utiliser `confidence` 0.4-0.6 pour informations partielles
+- Utiliser `confidence` 0.7-0.9 pour informations complètes
 
 """
 
