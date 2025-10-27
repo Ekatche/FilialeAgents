@@ -48,6 +48,11 @@ class CompanyExtractionResponse(BaseModel):
     employee_count: Optional[str] = None
     confidence_score: float
     sources: List[str] = []
+    # Coût de l'extraction
+    extraction_cost: Optional[dict] = Field(
+        default=None,
+        description="Coût de l'extraction en USD et EUR"
+    )
     extraction_date: str
     extraction_status: str
     total_subsidiaries: int

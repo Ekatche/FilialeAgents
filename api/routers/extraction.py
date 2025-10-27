@@ -43,6 +43,47 @@ async def _run_extraction_background(
             deep_search=deep_search,
         )
 
+        # Sauvegarder les coûts dans la base de données
+        try:
+            from core.database import AsyncSessionLocal
+            from models.db_models import CompanyExtraction, ExtractionType, ExtractionStatus
+
+            # Extraire les données de coût du résultat
+            extraction_costs = result.get("extraction_costs", {})
+
+            if extraction_costs:
+                async with AsyncSessionLocal() as db:
+                    # Vérifier si une extraction existe déjà pour ce session_id
+                    from sqlalchemy import select
+                    stmt = select(CompanyExtraction).where(CompanyExtraction.session_id == session_id)
+                    db_result = await db.execute(stmt)
+                    existing_extraction = db_result.scalar_one_or_none()
+
+                    if existing_extraction:
+                        # Mettre à jour l'extraction existante
+                        existing_extraction.cost_usd = extraction_costs.get("cost_usd")
+                        existing_extraction.cost_eur = extraction_costs.get("cost_eur")
+                        existing_extraction.total_tokens = extraction_costs.get("total_tokens")
+                        existing_extraction.input_tokens = extraction_costs.get("input_tokens")
+                        existing_extraction.output_tokens = extraction_costs.get("output_tokens")
+                        existing_extraction.models_usage = {
+                            "models_breakdown": extraction_costs.get("models_breakdown", []),
+                            "total_cost_usd": extraction_costs.get("cost_usd"),
+                            "total_cost_eur": extraction_costs.get("cost_eur"),
+                            "total_tokens": extraction_costs.get("total_tokens"),
+                            "exchange_rate": extraction_costs.get("exchange_rate", 0.92)
+                        }
+                        existing_extraction.status = ExtractionStatus.COMPLETED
+                        existing_extraction.processing_time = result.get("extraction_metadata", {}).get("processing_time", 0) / 1000  # Convert ms to seconds
+
+                        await db.commit()
+                        logger.info(f"💾 Coûts mis à jour dans DB pour session {session_id}: {extraction_costs.get('cost_eur'):.4f}€")
+                    else:
+                        logger.warning(f"⚠️ Aucune extraction trouvée pour session {session_id}")
+
+        except Exception as cost_error:
+            logger.error(f"❌ Erreur lors de la sauvegarde des coûts pour {session_id}: {cost_error}", exc_info=True)
+
         logger.info("✅ Extraction background terminée: %s", session_id)
         return result
 

@@ -121,7 +121,87 @@ async def run_agent_with_metrics(
                 
                 # Exécution de l'agent (le tracking continue en parallèle)
                 result = await Runner.run(agent, input=current_input, max_turns=max_turns)
-                
+
+                # Capturer les tokens utilisés si disponibles (selon la doc OpenAI)
+                if hasattr(result, 'context_wrapper') and hasattr(result.context_wrapper, 'usage'):
+                    try:
+                        usage = result.context_wrapper.usage
+
+                        # Récupérer le nom du modèle (pas l'objet)
+                        model_obj = getattr(agent, 'model', None)
+
+                        # Essayer plusieurs méthodes pour extraire le nom du modèle
+                        model_name = 'unknown'
+                        if model_obj:
+                            # Méthode 1 : Attribut 'name'
+                            if hasattr(model_obj, 'name'):
+                                model_name = model_obj.name
+                            # Méthode 2 : Attribut 'model'
+                            elif hasattr(model_obj, 'model'):
+                                model_name = model_obj.model
+                            # Méthode 3 : Attribut 'model_name'
+                            elif hasattr(model_obj, 'model_name'):
+                                model_name = model_obj.model_name
+                            # Méthode 4 : Méthode get_model_name()
+                            elif hasattr(model_obj, 'get_model_name'):
+                                model_name = model_obj.get_model_name()
+                            # Méthode 5 : Pour OpenAI models, chercher dans config
+                            elif hasattr(model_obj, '_model'):
+                                model_name = model_obj._model
+                            # Méthode 6 : Convertir en string et extraire
+                            else:
+                                str_repr = str(model_obj)
+                                logger.info(f"🔍 [DEBUG] Model string representation: {str_repr}")
+                                # Si ça contient "model=" ou "name=", l'extraire
+                                if 'model=' in str_repr:
+                                    model_name = str_repr.split('model=')[1].split(',')[0].strip().strip("'\"")
+                                else:
+                                    model_name = str_repr
+
+                        # Vérifier que usage existe et a les attributs nécessaires
+                        if usage and hasattr(usage, 'input_tokens') and hasattr(usage, 'output_tokens'):
+                            token_info = {
+                                "model": model_name,
+                                "input_tokens": usage.input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "total_tokens": getattr(usage, 'total_tokens', usage.input_tokens + usage.output_tokens)
+                            }
+                        else:
+                            # Fallback si usage n'a pas les attributs attendus
+                            token_info = {
+                                "model": model_name,
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                                "total_tokens": 0
+                            }
+
+                        # Stocker dans les métriques de performance
+                        agent_metrics.performance_metrics["tokens"] = token_info
+                        
+                        # Envoyer au ToolTokensTracker pour les coûts réels
+                        try:
+                            from .tool_tokens_tracker import ToolTokensTracker
+                            ToolTokensTracker.add_tool_usage(
+                                session_id=session_id,
+                                tool_name=agent_name,
+                                model=model_name,
+                                input_tokens=token_info['input_tokens'],
+                                output_tokens=token_info['output_tokens']
+                            )
+                            logger.info(f"🔧 Tokens envoyés au tracker pour {agent_name}")
+                        except Exception as tracker_error:
+                            logger.warning(f"⚠️ Erreur envoi tracker pour {agent_name}: {tracker_error}")
+
+                        logger.info(
+                            f"💰 Tokens capturés pour {agent_name}: "
+                            f"{token_info['input_tokens']} in + {token_info['output_tokens']} out = "
+                            f"{token_info['total_tokens']} total (modèle: {model_name})"
+                        )
+                    except Exception as e:
+                        logger.warning(f"⚠️ Impossible de capturer les tokens pour {agent_name}: {e}")
+                else:
+                    logger.warning(f"⚠️ Pas de données d'usage disponibles pour {agent_name}")
+
                 # Si succès, sortir de la boucle
                 if attempt > 0:
                     retry_step.finish(MetricStatus.COMPLETED, {"retry_success": True})
@@ -159,12 +239,12 @@ async def run_agent_with_metrics(
                 "confidence_score": 0.8  # Score par défaut
             }
             
-            # Métriques de performance
-            agent_metrics.performance_metrics = {
+            # Métriques de performance (MISE À JOUR au lieu d'écrasement pour garder "tokens")
+            agent_metrics.performance_metrics.update({
                 "total_duration_ms": agent_metrics.total_duration_ms,
                 "steps_completed": len(agent_metrics.steps),
                 "success_rate": 1.0
-            }
+            })
             
             process_step.finish(MetricStatus.COMPLETED, {
                 "output_processed": True,
@@ -293,7 +373,7 @@ async def run_data_restructurer_with_metrics(
     max_turns: int = 3
 ) -> Dict[str, Any]:
     """Wrapper spécialisé pour l'agent Data Restructurer"""
-    from ..subs_agents.data_validator import data_restructurer
+    from ..subs_agents.data_validator_optimized import data_restructurer_optimized as data_restructurer
     
     return await run_agent_with_metrics(
         agent=data_restructurer,

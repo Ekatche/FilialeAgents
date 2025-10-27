@@ -23,7 +23,7 @@ from company_agents.models import SubsidiaryReport
 from company_agents.metrics import metrics_collector, MetricStatus, RealTimeTracker
 from .perplexity_prompt_w_subs import PERPLEXITY_RESEARCH_SUBS_PROMPT
 from .perplexity_prompt_wo_subs import PERPLEXITY_RESEARCH_WO_SUBS_PROMPT
-from ..subs_tools.filiales_search_agent import subsidiary_search
+from ..subs_tools.filiales_search_agent_optimized import subsidiary_search
 # Configuration du logging
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,22 @@ logger = logging.getLogger(__name__)
 #   → RETOURNE DU TEXTE BRUT
 # ==========================================
 
-# Configuration Perplexity
-perplexity_client = AsyncOpenAI(
-    api_key=os.getenv("PERPLEXITY_API_KEY"),
-    base_url="https://api.perplexity.ai",
-)
+# Configuration Perplexity (initialisation paresseuse)
+perplexity_client = None
+
+def get_perplexity_client():
+    """Initialise le client Perplexity de manière paresseuse."""
+    global perplexity_client
+    if perplexity_client is None:
+        api_key = os.getenv("PERPLEXITY_API_KEY")
+        if not api_key:
+            logger.warning("⚠️ PERPLEXITY_API_KEY non définie - le client Perplexity ne sera pas initialisé")
+            return None
+        perplexity_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.perplexity.ai",
+        )
+    return perplexity_client
 
 
 # ==========================================
@@ -143,9 +154,15 @@ async def research_subsidiaries_with_perplexity(
         
         query = ". ".join(query_parts) + "."
 
+        # Vérifier que le client Perplexity est disponible
+        client_instance = get_perplexity_client()
+        if not client_instance:
+            logger.error("❌ Client Perplexity non initialisé - PERPLEXITY_API_KEY manquante")
+            return "Erreur: Client Perplexity non configuré. Veuillez définir PERPLEXITY_API_KEY."
+
         # Appel Perplexity avec gestion d'erreurs
         logger.debug(f"📡 Appel API Perplexity pour: {company_name}")
-        response = await perplexity_client.chat.completions.create(
+        response = await client_instance.chat.completions.create(
             model="sonar-pro",
             messages=[
                 {"role": "system", "content": selected_prompt},
@@ -160,6 +177,32 @@ async def research_subsidiaries_with_perplexity(
             },
             timeout=120.0,  # 2 minutes max
         )
+        
+        # Capturer les tokens utilisés par Perplexity
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"💰 [Tool] Tokens research_subsidiaries_with_perplexity: "
+                f"{response.usage.prompt_tokens} in + {response.usage.completion_tokens} out = "
+                f"{response.usage.total_tokens} total (modèle: sonar-pro)"
+            )
+            
+            # Envoyer au ToolTokensTracker
+            try:
+                from company_agents.metrics.tool_tokens_tracker import ToolTokensTracker
+                # Utiliser un session_id par défaut si pas fourni
+                session_id = getattr(research_subsidiaries_with_perplexity, '_session_id', 'default-session')
+                ToolTokensTracker.add_tool_usage(
+                    session_id=session_id,
+                    tool_name='research_subsidiaries_with_perplexity',
+                    model='sonar-pro',
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens
+                )
+                logger.info("🔧 Tokens envoyés au tracker pour research_subsidiaries_with_perplexity")
+            except ImportError:
+                logger.debug("ToolTokensTracker non disponible")
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur envoi tokens research_subsidiaries_with_perplexity: {e}")
         
         # Vérification de la réponse
         if not response or not response.choices:
@@ -248,305 +291,197 @@ async def research_subsidiaries_with_perplexity(
 CARTOGRAPHE_SIMPLE_PROMPT = """
 🗺️ **Cartographe Commercial** : Structure les données de filiales en JSON `SubsidiaryReport`.
 
-# WORKFLOW OBLIGATOIRE
+# WORKFLOW
 
-## Étape 1 : Appel de l'outil (CRITIQUE)
-**PREMIÈRE ACTION** : Appelle `subsidiary_search` avec ces paramètres :
-
+## 1. Appel de l'outil (OBLIGATOIRE)
+Appelle `subsidiary_search` avec :
 ```python
 subsidiary_search(
-    company_name="Nom exact de l'entreprise",  # OBLIGATOIRE
-    sector="Secteur d'activité",               # ou None
-    activities=["Activité 1", "Activité 2"],   # ou None
-    website="https://example.com",             # ou None
-    has_filiales_only=True                     # du Mineur (true si uniquement filiales, false si mélange/bureaux)
+    company_name="Nom exact",
+    sector="Secteur ou None",
+    activities=["Act1", "Act2"] ou None,
+    website="https://... ou None",
+    has_filiales_only=True/False  # du Mineur
 )
 ```
 
-## Étape 2 : Analyse du texte de recherche
-Après l'appel, analyse le texte retourné par `subsidiary_search` qui est au format :
+## 2. Analyse du texte
+Le texte retourné est structuré :
 ```
 === RECHERCHE FILIALES ET IMPLANTATIONS ===
 FILIALES JURIDIQUES IDENTIFIÉES: [...]
 BUREAUX ET CENTRES (PRÉSENCE COMMERCIALE): [...]
 ```
 
-Continue à l'étape 3 pour structurer ces données en JSON.
+Identifie et classe en 3 catégories :
+- **FILIALES JURIDIQUES** : Entités avec forme juridique (SARL, SAS, GmbH, LLC, Ltd, Inc, BV)
+- **BUREAUX COMMERCIAUX** : Bureaux, agences, succursales (PAS de personnalité juridique)
+- **PARTENAIRES/DISTRIBUTEURS** : Entreprises tierces (partenaires, distributeurs, franchises)
 
-## Étape 3 : Extraction des données (AVEC RÉFLEXION)
+**Critères d'inclusion** :
+- Pays identifiable → REQUIS (sinon EXCLURE)
+- Ville recommandée (si absent → `city: null`)
+- Si doute sur nature juridique → `commercial_presence` type="office", confidence: 0.5
+- Au moins 1 source requise
 
-**🧠 PHASE DE RÉFLEXION INTERNE** (avant structuration JSON) :
-1. Lis `research_text` en entier
-2. Identifie et classe en 3 catégories :
-   - **FILIALES JURIDIQUES** : entités avec personnalité juridique propre (SARL, SAS, GmbH, LLC, etc.)
-   - **BUREAUX COMMERCIAUX** : bureaux de vente, agences, succursales sans personnalité juridique
-   - **PARTENAIRES/DISTRIBUTEURS** : entreprises tierces (partenaires, distributeurs autorisés, franchises)
-3. Pour chaque entité, évalue :
-   - Pays identifiable ? → REQUIS (sinon EXCLURE)
-   - Ville identifiable ? → RECOMMANDÉ (si absent, utiliser `city: null`)
-   - Type de présence clair ? → Si doute, classer en `commercial_presence` type="office"
-   - Source traçable dans `citations[]` ? → Au moins 1 source requise
-4. N'exclus que si **pays absent** OU **aucune source**
-5. PUIS passe à la structuration JSON
+## 3. Structuration JSON
 
-# RÈGLES CRITIQUES (NON-NÉGOCIABLES)
+# RÈGLES CRITIQUES
 
-## 🔍 Distinction filiale vs présence commerciale
+## 🔍 Classification
 
-**FILIALE JURIDIQUE** (→ `subsidiaries[]`) :
-- Entité avec personnalité juridique propre
-- Forme juridique explicite : SA, SAS, SARL, GmbH, LLC, Ltd, Inc, BV, etc.
-- Exemple : "Acme France SAS", "Acme GmbH", "Acme Inc."
+**FILIALE JURIDIQUE** → `subsidiaries[]` :
+- Forme juridique explicite : SA, SAS, SARL, GmbH, LLC, Ltd, Inc, BV
+- Ex: "Acme France SAS", "Acme GmbH"
+- **RÈGLE SPÉCIALE** : Si source mentionne explicitement "filiale", "subsidiary", "entité juridique", "legal entity" → C'EST UNE FILIALE même sans forme juridique visible
+  - Ex: "ouvre deux filiales en Allemagne et en Inde" → classer en `subsidiaries[]`
+  - Ex: "subsidiary in Munich" → classer en `subsidiaries[]`
 
-**BUREAU COMMERCIAL** (→ `commercial_presence[]` type="office") :
-- Bureau de vente, agence, succursale
-- PAS de personnalité juridique propre
-- Exemple : "Bureau commercial de Paris", "Acme - Agence Lyon"
+**PRÉSENCE COMMERCIALE** → `commercial_presence[]` :
+- **office** : Bureau de vente, agence, succursale, usine, centre R&D
+- **partner** : Partenaire certifié, alliance stratégique
+- **distributor** : Distributeur autorisé, revendeur agréé
+- **representative** : Agent commercial, représentant
 
-**PARTENAIRE** (→ `commercial_presence[]` type="partner") :
-- Entreprise tierce avec accord de partenariat
-- Exemple : "Partenaire certifié XYZ", "Alliance stratégique avec ABC"
+**Si doute** → `commercial_presence` type="office", confidence: 0.5
 
-**DISTRIBUTEUR** (→ `commercial_presence[]` type="distributor") :
-- Distributeur autorisé, revendeur agréé
-- Exemple : "Distributeur exclusif pour l'Italie", "Authorized dealer"
+**Principe** : **Inclure avec faible confidence > Exclure totalement**
 
-**REPRÉSENTANT** (→ `commercial_presence[]` type="representative") :
-- Agent commercial, représentant
-- Exemple : "Agent commercial pour l'Espagne"
+## 🚫 Anti-hallucination
+- Ne JAMAIS inventer adresse, ville, téléphone, email
+- **Pays obligatoire** : Sans pays = EXCLURE
+- **Ville recommandée** : Si absent + pays présent = ACCEPTER avec `city: null`
+- Toute info tracée dans texte + `citations[]`
+- En cas de doute : `null` (ne suppose rien)
 
-## 🚫 Anti-hallucination (RÈGLES ASSOUPLIES)
-- **Copie exacte** : Ne JAMAIS inventer adresse, ville, téléphone, email
-- **Localisation flexible** : 
-  * **Pays obligatoire** : Sans pays identifiable = EXCLURE l'entité
-  * **Ville recommandée** : Si absente mais pays présent = ACCEPTER avec `city: null`
-- **Validation source** : Toute info doit être tracée dans le texte
-- **En cas de doute** : Utilise `null`, ne suppose rien
-- **Classification par défaut** : Si nature juridique incertaine → `commercial_presence` type="office", confidence: 0.5
-- **Usines et centres R&D** : Toujours inclure en `commercial_presence` type="office" si mentionnés
-- **Bureaux commerciaux** : Toujours inclure en `commercial_presence` type="office" si mentionnés
+## 📋 Extraction filiales juridiques
 
-## 📋 Extraction filiales juridiques (CRITÈRES ASSOUPLIS)
-Pour chaque filiale dans `research_text` :
-- **Obligatoires** : `legal_name`, `country` (ville peut être `null`)
-- **Recommandés** : `city` (si absent, utiliser `null`)
-- **Optionnels** : `line1` (adresse), `postal_code`, `phone`, `email`, `activity`
-- **Géocodage automatique OBLIGATOIRE** :
-  * Si `city` ET `country` présents → ajouter `latitude` et `longitude` basées sur tes connaissances géographiques
-  * Si SEULEMENT `country` présent (ville absente) → ajouter `latitude` et `longitude` de la capitale du pays
-  * Exemples : France sans ville → Paris (48.8566, 2.3522), Germany sans ville → Berlin (52.5200, 13.4050)
-- **Sources** : URLs de `citations` uniquement
-  - Tier : `official` (registres, sites officiels), `financial_media` (Bloomberg, Reuters), `other`
-- **Confidence** :
-  - 0.85-0.95 : Site officiel, SEC, registres
-  - 0.70-0.85 : Financial DB (Bloomberg, Reuters)
-  - 0.60-0.70 : Presse financière (FT, WSJ)
-  - 0.50-0.60 : LinkedIn, Crunchbase
-- **Limites** : Max 50 filiales, max 10 sources/filiale, max 20 notes
+**Obligatoires** : `legal_name`, `country`
+**Recommandés** : `city` (ou `null`)
+**Optionnels** : `line1`, `postal_code`, `phone`, `email`, `activity`
 
-## 🌍 Extraction présence commerciale (CRITÈRES ASSOUPLIS)
-
-Pour chaque bureau/partenaire/distributeur dans `research_text` :
-
-**Obligatoires** :
-- `name` : Nom du bureau/partenaire/distributeur
-- `type` : "office", "partner", "distributor", "representative" (si doute → "office")
-- `relationship` : "owned" (bureau propre), "partnership", "authorized_distributor", "franchise" (si doute → "owned")
-- `location.country` : Pays obligatoire
-
-**Recommandés** :
-- `location.city` : Si absent, utiliser `null` (pays suffit)
-
-**Optionnels** :
-- `activity` : Activité spécifique
-- `location.line1` : Adresse complète
-- `location.postal_code`, `phone`, `email`
-- `since_year` : Année d'établissement
-- `status` : "active", "inactive", "unverified"
-
-## 🌍 Géocodage automatique OBLIGATOIRE (NOUVEAU)
-**RÈGLES DE GÉOCODAGE** :
-- **Si `city` ET `country` présents** → Ajouter `latitude` et `longitude` du centre de la ville
-- **Si SEULEMENT `country` présent (ville absente)** → Ajouter `latitude` et `longitude` de la capitale du pays
-- **Exemples avec ville** :
-  * Paris, France → latitude: 48.8566, longitude: 2.3522
-  * London, UK → latitude: 51.5074, longitude: -0.1278
-  * New York, USA → latitude: 40.7128, longitude: -74.0060
-  * Berlin, Germany → latitude: 52.5200, longitude: 13.4050
-- **Exemples sans ville (pays seul)** :
-  * France (ville inconnue) → Paris: latitude: 48.8566, longitude: 2.3522
-  * UK (ville inconnue) → London: latitude: 51.5074, longitude: -0.1278
-  * Germany (ville inconnue) → Berlin: latitude: 52.5200, longitude: 13.4050
-- **Précision** : Utilise les coordonnées du centre-ville principal ou de la capitale
+**Géocodage automatique OBLIGATOIRE** :
+- Si `city` + `country` → `latitude`/`longitude` du centre-ville
+- Si SEULEMENT `country` → `latitude`/`longitude` de la capitale
+- Ex: Paris (48.8566, 2.3522), London (51.5074, -0.1278), Berlin (52.5200, 13.4050)
 
 **Sources** : URLs de `citations` uniquement
-- Tier : `official` > `financial_media` > `other`
+- Tier : `official` (registres, sites) > `financial_media` (Bloomberg, Reuters) > `other`
 
 **Confidence** :
-- 0.85-0.95 : Site officiel avec page "Nos bureaux/Partenaires"
+- 0.85-0.95 : Site officiel, SEC, registres
+- 0.70-0.85 : Financial DB
+- 0.60-0.70 : Presse financière
+- 0.50-0.60 : LinkedIn, Crunchbase
+
+**Limites** : Max 50 filiales, max 10 sources/filiale, max 20 notes
+
+## 🌍 Extraction présence commerciale
+
+**Obligatoires** : `name`, `type`, `relationship`, `location.country`
+**Recommandés** : `location.city` (ou `null`)
+**Optionnels** : `activity`, `line1`, `postal_code`, `phone`, `email`, `since_year`, `status`
+
+**Géocodage** : Même règles que filiales (ville + pays → coordonnées)
+
+**Entités à TOUJOURS inclure** (si pays identifiable) :
+- Usines, manufacturing facilities, production sites
+- Centres R&D, research centers, laboratories
+- Bureaux commerciaux, offices, branches
+- Partenaires et distributeurs officiels
+
+**Confidence** :
+- 0.85-0.95 : Site officiel "Nos bureaux/Partenaires"
 - 0.70-0.85 : Presse spécialisée, annonces officielles
-- 0.60-0.70 : Bases de données professionnelles
-- 0.50-0.60 : LinkedIn, mentions dans articles
+- 0.60-0.70 : Bases professionnelles
+- 0.50-0.60 : LinkedIn, mentions
+- 0.40-0.50 : Informations partielles (ville manquante)
 
-**Limites** :
-- Max 50 présences commerciales
-- Max 10 sources/présence
+**Limites** : Max 50 présences, max 10 sources/présence
 
-## 🎯 CLASSIFICATION PAR DÉFAUT (NOUVEAU - CRITICAL)
-
-**En cas de doute sur la nature juridique** :
-- **Par défaut** : Classer en `commercial_presence[]` avec `type="office"`
-- **Confidence** : 0.5 (indique incertitude)
-- **Exemples** :
-  * "OneProd" sans forme juridique → `commercial_presence`, type="office", confidence: 0.5
-  * "JCTM Ltda" → `subsidiaries` (Ltda = forme juridique), confidence: 0.9
-  * "Acoem USA" → `commercial_presence`, type="office", confidence: 0.6
-  * "Benchmark Services" → `commercial_presence`, type="office", confidence: 0.5
-
-**Principe** : Mieux vaut **inclure** avec faible confidence que **exclure** totalement.
-
-## 🏢 Si aucune filiale ET aucune présence commerciale
+## 🏢 Si aucune entité trouvée
 Extrais info entreprise principale dans `extraction_summary.main_company_info` :
-- `address`, `revenue`, `employees`, `phone`, `email` (depuis `research_text`)
-- Ajoute note : "Aucune filiale ni présence commerciale trouvée après analyse exhaustive"
+- `address`, `revenue`, `employees`, `phone`, `email`
+- Note : "Aucune filiale ni présence commerciale trouvée après analyse exhaustive"
 
 ## ⚠️ Gestion erreurs
-Si `status: "error"` dans réponse outil, retourne :
+Si `status: "error"`, retourne :
 ```json
 {
   "company_name": "Nom",
   "parents": [],
   "subsidiaries": [],
   "commercial_presence": [],
-  "methodology_notes": ["Erreur: message détaillé"],
+  "methodology_notes": ["Erreur: message"],
   "extraction_summary": {
     "total_found": 0,
     "total_commercial_presence": 0,
-    "methodology_used": ["Erreur Perplexity"]
+    "methodology_used": ["Erreur"]
   }
 }
 ```
 
 ## 🎯 Validation géographique
-Vérifie cohérence pays/ville AVANT inclusion :
-- Paris (France) ≠ Paris (Texas, USA)
-- London (UK) ≠ London (Ontario, Canada)
-- Knoxville (Tennessee, USA) ≠ Knoxfield (Victoria, Australia)
+Vérifie cohérence pays/ville : Paris (France) ≠ Paris (Texas, USA)
 
-## 📤 Format sortie (succès avec filiales + présence commerciale)
+## 📤 Format sortie
 
 ```json
 {
-  "company_name": "Nom du groupe",
+  "company_name": "Groupe",
   "parents": [],
   "subsidiaries": [
     {
       "legal_name": "Filiale SAS",
       "type": "subsidiary",
       "activity": "...",
-      "headquarters": { "city": "Paris", "country": "France", ... },
-      "sources": [...]
+      "headquarters": {
+        "city": "Paris",
+        "country": "France",
+        "latitude": 48.8566,
+        "longitude": 2.3522
+      },
+      "sources": [{"title": "...", "url": "...", "tier": "official"}],
+      "confidence": 0.9
     }
   ],
   "commercial_presence": [
     {
-      "name": "Bureau commercial de Lyon",
+      "name": "Bureau Lyon",
       "type": "office",
       "relationship": "owned",
-      "activity": "Vente et support technique",
       "location": {
-        "label": "Bureau commercial",
-        "line1": "10 rue de la République",
         "city": "Lyon",
         "country": "France",
-        "postal_code": "69002",
-        "phone": "+33 4 XX XX XX XX",
-        "email": "lyon@example.com",
-        "website": "https://example.com/contact/lyon"
+        "latitude": 45.7640,
+        "longitude": 4.8357
       },
-      "confidence": 0.85,
-      "sources": [
-        {
-          "title": "Nos bureaux - Example.com",
-          "url": "https://example.com/contact/offices",
-          "tier": "official",
-          "accessibility": "ok"
-        }
-      ],
-      "since_year": 2018,
-      "status": "active"
-    },
-    {
-      "name": "Distributeur autorisé ABC GmbH",
-      "type": "distributor",
-      "relationship": "authorized_distributor",
-      "activity": "Distribution exclusive pour l'Allemagne",
-      "location": {
-        "city": "Berlin",
-        "country": "Allemagne",
-        "website": "https://abc-distributor.de"
-      },
-      "confidence": 0.75,
-      "sources": [
-        {
-          "title": "Nos distributeurs - Example.com",
-          "url": "https://example.com/partners/distributors",
-          "tier": "official"
-        }
-      ],
-      "since_year": 2020,
+      "confidence": 0.8,
+      "sources": [{"title": "...", "url": "...", "tier": "official"}],
       "status": "active"
     }
   ],
-  "methodology_notes": [
-    "3 filiales juridiques identifiées",
-    "8 bureaux commerciaux répertoriés (France, Allemagne, Espagne)",
-    "5 distributeurs autorisés en Europe"
-  ],
+  "methodology_notes": ["3 filiales", "8 bureaux"],
   "extraction_summary": {
     "total_found": 3,
-    "total_commercial_presence": 13,
-    "presence_by_type": {
-      "office": 8,
-      "partner": 0,
-      "distributor": 5,
-      "representative": 0
-    },
-    "countries_covered": ["France", "Allemagne", "Espagne", "Italie", "Royaume-Uni"],
-    "methodology_used": ["Perplexity Sonar Pro", "Site officiel", "Pages Contact/Bureaux"]
+    "total_commercial_presence": 8,
+    "presence_by_type": {"office": 6, "distributor": 2},
+    "countries_covered": ["France", "Allemagne"],
+    "methodology_used": ["Site officiel", "gpt-4o-search"]
   }
 }
 ```
 
-## ✅ Checklist finale (OBLIGATOIRE avant output)
-- [ ] Phase de réflexion interne effectuée ?
-- [ ] Outil appelé avec 5 paramètres corrects ?
-- [ ] Status vérifié (success/error) ?
-- [ ] **Distinction filiale juridique vs présence commerciale faite ?**
-- [ ] **Si doute sur nature juridique → Classé en `commercial_presence` type="office" ?**
-- [ ] Pays identifié pour chaque entité ? (ville peut être `null`)
-- [ ] **Coordonnées géographiques ajoutées** si `city` ET `country` présents ?
+## ✅ Checklist finale
+- [ ] Outil appelé avec paramètres corrects ?
+- [ ] Status success/error vérifié ?
+- [ ] Distinction filiale juridique vs présence commerciale faite ?
+- [ ] Si doute → `commercial_presence` type="office", confidence: 0.5 ?
+- [ ] Pays identifié pour chaque entité ?
+- [ ] Coordonnées géographiques ajoutées si ville ou pays ?
 - [ ] Sources mappées depuis `citations` uniquement ?
 - [ ] Contacts copiés exactement (pas inventés) ?
-- [ ] Tous champs présents dans JSON (null si manquant) ?
-- [ ] **`commercial_presence[]` peuplée si bureaux/partenaires trouvés ?**
-- [ ] Si texte long : traité par sections ?
-- [ ] **Principe appliqué : Inclure avec faible confidence plutôt qu'exclure ?**
-- [ ] **Usines et centres R&D inclus** même avec informations partielles ?
-- [ ] **Bureaux commerciaux inclus** même avec informations partielles ?
-
-## 🏭 INSTRUCTIONS SPÉCIALES POUR USINES ET CENTRES R&D
-**ENTITÉS À TOUJOURS INCLURE :**
-- **Usines** : manufacturing facilities, plants, production sites
-- **Centres R&D** : research centers, R&D facilities, laboratories
-- **Bureaux commerciaux** : offices, branches, commercial offices
-
-**RÈGLES D'INCLUSION :**
-- Si mentionné dans `research_text` avec pays identifiable → INCLURE
-- Même si informations partielles (ville manquante, contacts manquants)
-- Classer en `commercial_presence` type="office"
-- Utiliser `confidence` 0.4-0.6 pour informations partielles
-- Utiliser `confidence` 0.7-0.9 pour informations complètes
+- [ ] Principe appliqué : Inclure avec faible confidence > Exclure ?
 
 """
 
@@ -557,75 +492,59 @@ Vérifie cohérence pays/ville AVANT inclusion :
 CARTOGRAPHE_ADVANCED_PROMPT = """
 🗺️ **Cartographe Commercial** : Structure les données de filiales en JSON `SubsidiaryReport`.
 
-# WORKFLOW OBLIGATOIRE
+# WORKFLOW
 
-## Étape 1 : Appel de l'outil (CRITIQUE)
-**PREMIÈRE ACTION** : Appelle `research_subsidiaries_with_perplexity` avec ces paramètres :
-
+## 1. Appel de l'outil (OBLIGATOIRE)
+Appelle `research_subsidiaries_with_perplexity` avec :
 ```python
 research_subsidiaries_with_perplexity(
-    company_name="Nom exact de l'entreprise",  # OBLIGATOIRE
-    sector="Secteur d'activité",               # ou None
-    activities=["Activité 1", "Activité 2"],   # ou None
-    website="https://example.com",             # ou None
-    context="Contexte enrichi du Mineur",      # ou None
-    has_filiales_only=True,                   # du Mineur (true si uniquement filiales, false si mélange/bureaux)
-    enterprise_type="complex"                  # du Mineur (complex/simple)
+    company_name="Nom exact",
+    sector="Secteur ou None",
+    activities=["Act1", "Act2"] ou None,
+    website="https://... ou None",
+    context="Contexte Mineur ou None",
+    has_filiales_only=True/False,
+    enterprise_type="complex/simple"
 )
 ```
 
-## Étape 2 : Vérification du statut
-Après l'appel, vérifie `status` dans la réponse :
-- Si `status: "success"` → Continue à l'étape 3
-- Si `status: "error"` → Retourne JSON d'erreur (voir format ci-dessous)
+## 2. Vérification statut
+- `status: "success"` → Continue étape 3
+- `status: "error"` → Retourne JSON d'erreur
 
-## Étape 3 : Extraction des données (AVEC RÉFLEXION)
+## 3. Analyse et structuration
+Identifie et classe :
+- **FILIALES JURIDIQUES** : Forme juridique (SARL, SAS, GmbH, LLC, Ltd, Inc, BV)
+- **BUREAUX COMMERCIAUX** : Bureaux, agences, succursales (PAS de personnalité juridique)
+- **PARTENAIRES/DISTRIBUTEURS** : Entreprises tierces
 
-**🧠 PHASE DE RÉFLEXION INTERNE** (avant structuration JSON) :
-1. Lis `research_text` en entier
-2. Identifie et classe en 3 catégories :
-   - **FILIALES JURIDIQUES** : entités avec personnalité juridique propre (SARL, SAS, GmbH, LLC, etc.)
-   - **BUREAUX COMMERCIAUX** : bureaux de vente, agences, succursales sans personnalité juridique
-   - **PARTENAIRES/DISTRIBUTEURS** : entreprises tierces (partenaires, distributeurs autorisés, franchises)
-3. Pour chaque entité, évalue :
-   - Pays identifiable ? → REQUIS (sinon EXCLURE)
-   - Ville identifiable ? → RECOMMANDÉ (si absent, utiliser `city: null`)
-   - Type de présence clair ? → Si doute, classer en `commercial_presence` type="office"
-   - Source traçable dans `citations[]` ? → Au moins 1 source requise
-4. N'exclus que si **pays absent** OU **aucune source**
-5. PUIS passe à la structuration JSON
+Critères : Pays REQUIS, ville recommandée, source requise, si doute → `commercial_presence` type="office"
 
-# RÈGLES CRITIQUES (NON-NÉGOCIABLES)
+# RÈGLES CRITIQUES
 
-## 🔍 Distinction filiale vs présence commerciale
+## 🔍 Classification
 
-**FILIALE JURIDIQUE** (→ `subsidiaries[]`) :
-- Entité avec personnalité juridique propre
-- Forme juridique explicite : SA, SAS, SARL, GmbH, LLC, Ltd, Inc, BV, etc.
-- Exemple : "Acme France SAS", "Acme GmbH", "Acme Inc."
+**FILIALE JURIDIQUE** → `subsidiaries[]` :
+- Forme juridique explicite (SA, SAS, SARL, GmbH, LLC, Ltd, Inc, BV)
+- **RÈGLE SPÉCIALE** : Si source mentionne explicitement "filiale", "subsidiary", "entité juridique", "legal entity" → C'EST UNE FILIALE même sans forme juridique visible
+  - Ex: "ouvre deux filiales en Allemagne et en Inde" → classer en `subsidiaries[]`
+  - Ex: "subsidiary in Munich" → classer en `subsidiaries[]`
 
-**BUREAU COMMERCIAL** (→ `commercial_presence[]` type="office") :
-- Bureau de vente, agence, succursale
-- PAS de personnalité juridique propre
-- Exemple : "Bureau commercial de Paris", "Acme - Agence Lyon"
+**PRÉSENCE COMMERCIALE** → `commercial_presence[]` :
+- **office** : Bureau, agence, succursale, usine, centre R&D
+- **partner** : Partenaire certifié
+- **distributor** : Distributeur autorisé
+- **representative** : Agent commercial
 
-**PARTENAIRE** (→ `commercial_presence[]` type="partner") :
-- Entreprise tierce avec accord de partenariat
-- Exemple : "Partenaire certifié XYZ", "Alliance stratégique avec ABC"
+**Si doute** → `commercial_presence` type="office", confidence: 0.5
 
-**DISTRIBUTEUR** (→ `commercial_presence[]` type="distributor") :
-- Distributeur autorisé, revendeur agréé
-- Exemple : "Distributeur exclusif pour l'Italie", "Authorized dealer"
-
-**REPRÉSENTANT** (→ `commercial_presence[]` type="representative") :
-- Agent commercial, représentant
-- Exemple : "Agent commercial pour l'Espagne"
+**Principe** : **Inclure avec faible confidence > Exclure totalement**
 
 ## ✅ ENTITÉS À INCLURE OBLIGATOIREMENT
 **PRINCIPE FONDAMENTAL : Mieux vaut inclure avec faible confidence que exclure totalement**
 
 **ENTITÉS VALIDES À TOUJOURS INCLURE :**
-- **Filiales juridiques** : SAS, GmbH, Inc, Ltd, SARL, LLC, BV, etc.
+- **Filiales juridiques** : SAS, GmbH, Inc, Ltd, SARL, LLC, BV
 - **Bureaux commerciaux** : offices, branches, agences, succursales
 - **Distributeurs officiels** : partners, authorized dealers, revendeurs
 - **Usines et centres de production** : manufacturing facilities, plants
@@ -633,154 +552,66 @@ Après l'appel, vérifie `status` dans la réponse :
 - **Représentants commerciaux** : agents, representatives
 
 **RÈGLE D'INCLUSION ASSOUPLIE :**
-- Si entité mentionnée dans `research_text` avec pays identifiable → INCLURE
-- Même si informations partielles (ville manquante, contacts manquants, etc.)
-- Utiliser `confidence` faible (0.3-0.6) pour informations partielles
-- Utiliser `confidence` élevée (0.7-0.9) pour informations complètes
+- Entité mentionnée avec pays identifiable → INCLURE
+- Même si info partielles (ville manquante, contacts manquants)
+- Confidence faible (0.3-0.6) pour info partielles
+- Confidence élevée (0.7-0.9) pour info complètes
 
 ## 🏢 RÈGLE SPÉCIALE POUR SITE OFFICIEL
 **ENTITÉS MENTIONNÉES SUR SITE OFFICIEL :**
-- Si entité mentionnée sur site officiel du groupe → confidence: 0.5 (50%) MINIMUM
-- Même si informations partielles (ville manquante, contacts manquants)
+- Si entité mentionnée sur site officiel → **confidence: 0.5 (50%) MINIMUM**
+- Même si info partielles (ville manquante, contacts manquants)
 - Toujours inclure avec confidence 0.5-0.6
-- Principe : Site officiel = source fiable, donc confidence minimum garantie
+- Principe : Site officiel = source fiable → confidence minimum garantie
 
 **EXEMPLES :**
-- "ACOEM India Manufacturing Site" mentionné sur acoem.com → confidence: 0.5
-- "ACOEM R&D Center" mentionné sur acoem.com → confidence: 0.5
-- "Bureau commercial" mentionné sur site officiel → confidence: 0.5
+- "ACOEM India Manufacturing Site" sur acoem.com → confidence: 0.5
+- "ACOEM R&D Center" sur acoem.com → confidence: 0.5
+- "Bureau commercial" sur site officiel → confidence: 0.5
 
-## 🚫 Anti-hallucination (RÈGLES ASSOUPLIES)
-- **Copie exacte** : Ne JAMAIS inventer adresse, ville, téléphone, email
-- **Localisation flexible** :
-  * **Pays obligatoire** : Sans pays identifiable = EXCLURE l'entité
-  * **Ville recommandée** : Si absente mais pays présent = ACCEPTER avec `city: null`
-- **Validation source** : Toute info doit être tracée dans le texte
-- **En cas de doute** : Utilise `null`, ne suppose rien
-- **Classification par défaut** : Si nature juridique incertaine → `commercial_presence` type="office", confidence: 0.5
-- **Usines et centres R&D** : Toujours inclure en `commercial_presence` type="office" si mentionnés
-- **Bureaux commerciaux** : Toujours inclure en `commercial_presence` type="office" si mentionnés
+## 🚫 Anti-hallucination
+- Ne JAMAIS inventer adresse, ville, téléphone, email
+- **Pays obligatoire** : Sans pays = EXCLURE
+- **Ville recommandée** : Si absent + pays présent = ACCEPTER avec `city: null`
+- Toute info tracée dans texte + `citations[]`
+- En cas de doute : `null`
 
-## 📋 Extraction filiales juridiques (CRITÈRES ASSOUPLIS)
-Pour chaque filiale dans `research_text` :
-- **Obligatoires** : `legal_name`, `country` (ville peut être `null`)
-- **Recommandés** : `city` (si absent, utiliser `null`)
-- **Optionnels** : `line1` (adresse), `postal_code`, `phone`, `email`, `activity`
-- **Géocodage automatique** : Si `city` ET `country` présents, ajouter `latitude` et `longitude` basées sur tes connaissances géographiques
-- **Sources** : URLs de `citations` uniquement
-  - Tier : `official` (registres, sites officiels), `financial_media` (Bloomberg, Reuters), `other`
-- **Confidence** :
-  - 0.85-0.95 : Site officiel, SEC, registres
-  - 0.70-0.85 : Financial DB (Bloomberg, Reuters)
-  - 0.60-0.70 : Presse financière (FT, WSJ)
-  - 0.50-0.60 : LinkedIn, Crunchbase
-- **Limites** : Max 50 filiales, max 10 sources/filiale, max 20 notes
+## 📋 Extraction filiales juridiques
 
-## 🌍 Extraction présence commerciale (CRITÈRES ASSOUPLIS)
+**Obligatoires** : `legal_name`, `country`
+**Recommandés** : `city` (ou `null`)
+**Optionnels** : `line1`, `postal_code`, `phone`, `email`, `activity`
 
-Pour chaque bureau/partenaire/distributeur dans `research_text` :
+**Géocodage automatique** :
+- Si `city` + `country` → `latitude`/`longitude` centre-ville
+- Si SEULEMENT `country` → `latitude`/`longitude` capitale
+- Ex: Paris (48.8566, 2.3522), London (51.5074, -0.1278), Berlin (52.5200, 13.4050)
 
-**Obligatoires** :
-- `name` : Nom du bureau/partenaire/distributeur
-- `type` : "office", "partner", "distributor", "representative" (si doute → "office")
-- `relationship` : "owned" (bureau propre), "partnership", "authorized_distributor", "franchise" (si doute → "owned")
-- `location.country` : Pays obligatoire
-
-**Recommandés** :
-- `location.city` : Si absent, utiliser `null` (pays suffit)
-
-**Optionnels** :
-- `activity` : Activité spécifique
-- `location.line1` : Adresse complète
-- `location.postal_code`, `phone`, `email`
-- `since_year` : Année d'établissement
-- `status` : "active", "inactive", "unverified"
-
-## 🌍 Géocodage automatique OBLIGATOIRE (NOUVEAU)
-**RÈGLES DE GÉOCODAGE** :
-- **Si `city` ET `country` présents** → Ajouter `latitude` et `longitude` du centre de la ville
-- **Si SEULEMENT `country` présent (ville absente)** → Ajouter `latitude` et `longitude` de la capitale du pays
-- **Exemples avec ville** :
-  * Paris, France → latitude: 48.8566, longitude: 2.3522
-  * London, UK → latitude: 51.5074, longitude: -0.1278
-  * New York, USA → latitude: 40.7128, longitude: -74.0060
-  * Berlin, Germany → latitude: 52.5200, longitude: 13.4050
-- **Exemples sans ville (pays seul)** :
-  * France (ville inconnue) → Paris: latitude: 48.8566, longitude: 2.3522
-  * UK (ville inconnue) → London: latitude: 51.5074, longitude: -0.1278
-  * Germany (ville inconnue) → Berlin: latitude: 52.5200, longitude: 13.4050
-- **Précision** : Utilise les coordonnées du centre-ville principal ou de la capitale
-
-**Sources** : URLs de `citations` uniquement
-- Tier : `official` > `financial_media` > `other`
+**Sources** : URLs de `citations` - Tier : `official` > `financial_media` > `other`
 
 **Confidence** :
-- 0.85-0.95 : Site officiel avec page "Nos bureaux/Partenaires"
+- 0.85-0.95 : Site officiel, SEC, registres
+- 0.70-0.85 : Financial DB
+- 0.60-0.70 : Presse financière
+- 0.50-0.60 : LinkedIn, Crunchbase
+
+**Limites** : Max 50 filiales, max 10 sources/filiale, max 20 notes
+
+## 🌍 Extraction présence commerciale
+
+**Obligatoires** : `name`, `type`, `relationship`, `location.country`
+**Recommandés** : `location.city` (ou `null`)
+**Optionnels** : `activity`, `line1`, `postal_code`, `phone`, `email`, `since_year`, `status`
+
+**Géocodage** : Même règles que filiales
+
+**Confidence** :
+- 0.85-0.95 : Site officiel "Nos bureaux/Partenaires"
 - 0.70-0.85 : Presse spécialisée, annonces officielles
-- 0.60-0.70 : Bases de données professionnelles
-- 0.50-0.60 : LinkedIn, mentions dans articles
+- 0.60-0.70 : Bases professionnelles
+- 0.50-0.60 : LinkedIn, mentions
 
-**Limites** :
-- Max 50 présences commerciales
-- Max 10 sources/présence
-
-## 🎯 CLASSIFICATION PAR DÉFAUT (NOUVEAU - CRITICAL)
-
-**En cas de doute sur la nature juridique** :
-- **Par défaut** : Classer en `commercial_presence[]` avec `type="office"`
-- **Confidence** : 0.5 (indique incertitude)
-- **Exemples** :
-  * "OneProd" sans forme juridique → `commercial_presence`, type="office", confidence: 0.5
-  * "JCTM Ltda" → `subsidiaries` (Ltda = forme juridique), confidence: 0.9
-  * "Acoem USA" → `commercial_presence`, type="office", confidence: 0.6
-  * "Benchmark Services" → `commercial_presence`, type="office", confidence: 0.5
-
-**Principe** : Mieux vaut **inclure** avec faible confidence que **exclure** totalement.
-
-## 🏢 Si aucune filiale ET aucune présence commerciale
-Extrais info entreprise principale dans `extraction_summary.main_company_info` :
-- `address`, `revenue`, `employees`, `phone`, `email` (depuis `research_text`)
-- Ajoute note : "Aucune filiale ni présence commerciale trouvée après analyse exhaustive"
-
-## ⚠️ Gestion erreurs
-Si `status: "error"` dans réponse outil, retourne :
-```json
-{
-  "company_name": "Nom",
-  "parents": [],
-  "subsidiaries": [],
-  "commercial_presence": [],
-  "methodology_notes": ["Erreur: message détaillé"],
-  "extraction_summary": {
-    "total_found": 0,
-    "total_commercial_presence": 0,
-    "methodology_used": ["Erreur Perplexity"]
-  }
-}
-```
-
-## 🎯 Validation géographique
-Vérifie cohérence pays/ville AVANT inclusion :
-- Paris (France) ≠ Paris (Texas, USA)
-- London (UK) ≠ London (Ontario, Canada)
-- Knoxville (Tennessee, USA) ≠ Knoxfield (Victoria, Australia)
-
-## ✅ Checklist finale (OBLIGATOIRE avant output)
-- [ ] Phase de réflexion interne effectuée ?
-- [ ] Outil appelé avec paramètres corrects ?
-- [ ] Status vérifié (success/error) ?
-- [ ] **Distinction filiale juridique vs présence commerciale faite ?**
-- [ ] **Si doute sur nature juridique → Classé en `commercial_presence` type="office" ?**
-- [ ] Pays identifié pour chaque entité ? (ville peut être `null`)
-- [ ] **Coordonnées géographiques ajoutées** si `city` ET `country` présents ?
-- [ ] Sources mappées depuis `citations` uniquement ?
-- [ ] Contacts copiés exactement (pas inventés) ?
-- [ ] Tous champs présents dans JSON (null si manquant) ?
-- [ ] **`commercial_presence[]` peuplée si bureaux/partenaires trouvés ?**
-- [ ] Si texte long : traité par sections ?
-- [ ] **Principe appliqué : Inclure avec faible confidence plutôt qu'exclure ?**
-- [ ] **Usines et centres R&D inclus** même avec informations partielles ?
-- [ ] **Bureaux commerciaux inclus** même avec informations partielles ?
+**Limites** : Max 50 présences, max 10 sources/présence
 
 ## 🏭 INSTRUCTIONS SPÉCIALES POUR USINES ET CENTRES R&D
 **ENTITÉS À TOUJOURS INCLURE :**
@@ -789,23 +620,77 @@ Vérifie cohérence pays/ville AVANT inclusion :
 - **Bureaux commerciaux** : offices, branches, commercial offices
 
 **RÈGLES D'INCLUSION :**
-- Si mentionné dans `research_text` avec pays identifiable → INCLURE
-- Même si informations partielles (ville manquante, contacts manquants)
+- Si mentionné avec pays identifiable → INCLURE
+- Même si info partielles (ville manquante, contacts manquants)
 - Classer en `commercial_presence` type="office"
-- Utiliser `confidence` 0.4-0.6 pour informations partielles
-- Utiliser `confidence` 0.7-0.9 pour informations complètes
+- **Confidence 0.4-0.6** pour info partielles
+- **Confidence 0.7-0.9** pour info complètes
+
+## 🏢 Si aucune entité trouvée
+Extrais info entreprise principale dans `extraction_summary.main_company_info` :
+- `address`, `revenue`, `employees`, `phone`, `email`
+- Note : "Aucune filiale ni présence commerciale trouvée"
+
+## ⚠️ Gestion erreurs
+Si `status: "error"` :
+```json
+{
+  "company_name": "Nom",
+  "parents": [],
+  "subsidiaries": [],
+  "commercial_presence": [],
+  "methodology_notes": ["Erreur: message"],
+  "extraction_summary": {"total_found": 0, "total_commercial_presence": 0, "methodology_used": ["Erreur"]}
+}
+```
+
+## 🎯 Validation géographique
+Vérifie cohérence pays/ville : Paris (France) ≠ Paris (Texas, USA)
+
+## ✅ Checklist finale
+- [ ] Outil appelé avec paramètres corrects ?
+- [ ] Status vérifié ?
+- [ ] Distinction filiale vs présence faite ?
+- [ ] Si doute → `commercial_presence` type="office", confidence: 0.5 ?
+- [ ] Pays identifié pour chaque entité ?
+- [ ] Coordonnées géographiques ajoutées ?
+- [ ] Sources mappées depuis `citations` ?
+- [ ] Contacts copiés exactement (pas inventés) ?
+- [ ] Principe appliqué : Inclure avec faible confidence > Exclure ?
+- [ ] Entités site officiel avec confidence minimum 0.5 ?
+- [ ] Usines et centres R&D inclus ?
 
 """
 
-# Configuration OpenAI GPT-4
-openai_client = AsyncOpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-)
+# Configuration OpenAI GPT-4 (initialisation paresseuse)
+openai_client = None
 
-gpt4_llm = OpenAIChatCompletionsModel(
-    model="gpt-4o",
-    openai_client=openai_client,
-)
+def get_openai_client():
+    """Initialise le client OpenAI de manière paresseuse."""
+    global openai_client
+    if openai_client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.warning("⚠️ OPENAI_API_KEY non définie - le client OpenAI ne sera pas initialisé")
+            return None
+        openai_client = AsyncOpenAI(api_key=api_key)
+    return openai_client
+
+# Initialisation paresseuse du modèle GPT-4
+gpt4_llm = None
+
+def get_gpt4_llm():
+    """Initialise le modèle GPT-4 de manière paresseuse."""
+    global gpt4_llm
+    if gpt4_llm is None:
+        client = get_openai_client()
+        if not client:
+            return None
+        gpt4_llm = OpenAIChatCompletionsModel(
+            model="gpt-4o",
+            openai_client=client,
+        )
+    return gpt4_llm
 
 
 # Schéma de sortie - selon la doc OpenAI Agents SDK
@@ -816,30 +701,60 @@ subsidiary_report_schema = AgentOutputSchema(SubsidiaryReport, strict_json_schem
 #   AGENT CARTOGRAPHE SIMPLE
 # ==========================================
 
-cartographe_simple = Agent(
-    name="🗺️ Cartographe",
-    instructions=CARTOGRAPHE_SIMPLE_PROMPT,
-    tools=[subsidiary_search],  # Outil de recherche simple
-    output_type=subsidiary_report_schema,
-    model=gpt4_llm,
-)
+# Initialisation paresseuse des agents
+cartographe_simple = None
+cartographe_advanced = None
+
+def get_cartographe_simple():
+    """Initialise l'agent cartographe simple de manière paresseuse."""
+    global cartographe_simple
+    if cartographe_simple is None:
+        llm = get_gpt4_llm()
+        if not llm:
+            return None
+        cartographe_simple = Agent(
+            name="🗺️ Cartographe",
+            instructions=CARTOGRAPHE_SIMPLE_PROMPT,
+            tools=[subsidiary_search],  # Outil de recherche simple
+            output_type=subsidiary_report_schema,
+            model=llm,
+        )
+    return cartographe_simple
 
 
 # ==========================================
 #   AGENT CARTOGRAPHE AVANCÉ
 # ==========================================
 
-cartographe_advanced = Agent(
-    name="🗺️ Cartographe",
-    instructions=CARTOGRAPHE_ADVANCED_PROMPT,
-    tools=[research_subsidiaries_with_perplexity],  # Outil de recherche avancé
-    output_type=subsidiary_report_schema,
-    model=gpt4_llm,
-)
+def get_cartographe_advanced():
+    """Initialise l'agent cartographe avancé de manière paresseuse."""
+    global cartographe_advanced
+    if cartographe_advanced is None:
+        llm = get_gpt4_llm()
+        if not llm:
+            return None
+    cartographe_advanced = Agent(
+        name="🗺️ Cartographe",
+        instructions=CARTOGRAPHE_ADVANCED_PROMPT,
+        tools=[research_subsidiaries_with_perplexity],  # Outil de recherche avancé
+        output_type=subsidiary_report_schema,
+                model=llm,
+            )
+    return cartographe_advanced
 
 
-# Exportation pour rétrocompatibilité
-subsidiary_extractor = cartographe_advanced  # Par défaut, utilise le pipeline avancé
+# Exportation pour rétrocompatibilité (fonction paresseuse)
+def get_subsidiary_extractor():
+    """Retourne l'agent cartographe avancé de manière paresseuse."""
+    agent = get_cartographe_advanced()
+    if agent is None:
+        # Fallback vers l'agent simple si l'avancé n'est pas disponible
+        logger.warning("⚠️ Agent avancé non disponible, utilisation de l'agent simple")
+        return get_cartographe_simple()
+    return agent
+
+# Alias pour rétrocompatibilité
+subsidiary_extractor = get_subsidiary_extractor
 
 
 # ==========================================
@@ -863,8 +778,21 @@ async def run_cartographe_with_metrics(
         Dict contenant les résultats et métriques de performance
     """
     # Sélectionner l'agent selon deep_search
-    selected_agent = cartographe_advanced if deep_search else cartographe_simple
-    pipeline_name = "Pipeline Avancé" if deep_search else "Pipeline Simple"
+    if deep_search:
+        selected_agent = get_cartographe_advanced()
+        pipeline_name = "Pipeline Avancé"
+    else:
+        selected_agent = get_cartographe_simple()
+        pipeline_name = "Pipeline Simple"
+    
+    # Vérifier que l'agent est disponible
+    if selected_agent is None:
+        logger.error("❌ Aucun agent disponible - vérifiez la configuration OpenAI")
+        return {
+            "status": "error",
+            "error": "Agent non disponible - vérifiez la configuration OpenAI",
+            "pipeline_name": pipeline_name
+        }
 
     logger.info(f"🎯 Sélection pipeline: {pipeline_name}")
 
@@ -911,6 +839,67 @@ async def run_cartographe_with_metrics(
             input_data,
             max_turns=3
         )
+
+        # Capturer les tokens utilisés si disponibles (selon la doc OpenAI)
+        if hasattr(result, 'context_wrapper') and hasattr(result.context_wrapper, 'usage'):
+            try:
+                usage = result.context_wrapper.usage
+
+                # Récupérer le nom du modèle (pas l'objet)
+                model_obj = getattr(selected_agent, 'model', None)
+
+                # Essayer plusieurs méthodes pour extraire le nom du modèle
+                model_name = 'gpt-4o' if deep_search else 'gpt-4o-search-preview'  # Fallback
+                if model_obj:
+                    # Méthode 1 : Attribut 'name'
+                    if hasattr(model_obj, 'name'):
+                        model_name = model_obj.name
+                    # Méthode 2 : Attribut 'model'
+                    elif hasattr(model_obj, 'model'):
+                        model_name = model_obj.model
+                    # Méthode 3 : Attribut 'model_name'
+                    elif hasattr(model_obj, 'model_name'):
+                        model_name = model_obj.model_name
+                    # Méthode 4 : Pour OpenAI models, chercher dans config
+                    elif hasattr(model_obj, '_model'):
+                        model_name = model_obj._model
+                    # Méthode 5 : Convertir en string et extraire
+                    else:
+                        str_repr = str(model_obj)
+                        if 'model=' in str_repr:
+                            model_name = str_repr.split('model=')[1].split(',')[0].strip().strip("'\"")
+                        else:
+                            model_name = str_repr
+
+                # Vérifier que usage existe et a les attributs nécessaires
+                if usage and hasattr(usage, 'input_tokens') and hasattr(usage, 'output_tokens'):
+                    token_info = {
+                        "model": model_name,
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "total_tokens": getattr(usage, 'total_tokens', usage.input_tokens + usage.output_tokens)
+                    }
+                else:
+                    # Fallback si usage n'a pas les attributs attendus
+                    token_info = {
+                        "model": model_name,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 0
+                    }
+
+                # Stocker dans les métriques de performance
+                agent_metrics.performance_metrics["tokens"] = token_info
+
+                logger.info(
+                    f"💰 Tokens capturés pour {agent_name}: "
+                    f"{token_info['input_tokens']} in + {token_info['output_tokens']} out = "
+                    f"{token_info['total_tokens']} total (modèle: {model_name}, pipeline: {pipeline_name})"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Impossible de capturer les tokens pour {agent_name}: {e}")
+        else:
+            logger.warning(f"⚠️ Pas de données d'usage disponibles pour {agent_name} ({pipeline_name})")
 
         research_step.finish(MetricStatus.COMPLETED, {
             "research_completed": True,
@@ -1013,12 +1002,12 @@ async def run_cartographe_with_metrics(
                     "methodology_notes_count": len(methodology_notes) if methodology_notes else 0
                 }
                 
-                # Métriques de performance
-                agent_metrics.performance_metrics = {
+                # Métriques de performance (MISE À JOUR au lieu d'écrasement pour garder "tokens")
+                agent_metrics.performance_metrics.update({
                     "total_duration_ms": int((time.time() - agent_metrics.start_time) * 1000),
                     "steps_completed": len(agent_metrics.steps),
                     "success_rate": 1.0 if not has_errors else 0.0
-                }
+                })
                 
                 struct_step.finish(MetricStatus.COMPLETED, {
                     "subsidiaries_count": subsidiaries_count,

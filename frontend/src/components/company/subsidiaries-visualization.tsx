@@ -7,16 +7,18 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L, { LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Styles pour différencier les marqueurs
-const markerStyles = `
-  .subsidiary-marker {
-    filter: hue-rotate(200deg) saturate(1.5); /* Bleu pour filiales */
-  }
-  .commercial-marker {
-    filter: hue-rotate(100deg) saturate(1.5); /* Vert pour présences commerciales */
-  }
-`;
-import { SubsidiaryDetail, SiteInfo } from "@/lib/api";
+import { SubsidiaryDetail, SiteInfo, CommercialPresence } from "@/lib/api";
+
+// Créer des icônes SVG personnalisées avec les vraies couleurs
+const createMarkerIcon = (color: string) => {
+  const svgIcon = `
+    <svg width="25" height="41" viewBox="0 0 25 41" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12.5 0C5.6 0 0 5.6 0 12.5c0 8.4 12.5 28.5 12.5 28.5S25 20.9 25 12.5C25 5.6 19.4 0 12.5 0z" fill="${color}"/>
+      <circle cx="12.5" cy="12.5" r="6" fill="white"/>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${btoa(svgIcon)}`;
+};
 
 type CountryKey = string;
 
@@ -141,29 +143,25 @@ const COUNTRY_SYNONYMS: Record<string, CountryKey> = {
 
 const mapCenter: [number, number] = [20, 0];
 
-// Icônes différenciées pour filiales vs présences commerciales
+// Icônes différenciées pour filiales vs présences commerciales avec les vraies couleurs
 const subsidiaryIcon = L.icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  iconUrl: createMarkerIcon("#3b82f6"), // Bleu pour filiales (blue-500)
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
   shadowSize: [41, 41],
-  className: "subsidiary-marker" // Pour le style CSS
 });
 
 const commercialIcon = L.icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  iconUrl: createMarkerIcon("#22c55e"), // Vert pour présences commerciales (green-500)
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
   shadowSize: [41, 41],
-  className: "commercial-marker" // Pour le style CSS
 });
 
 const defaultIcon = subsidiaryIcon;
@@ -292,6 +290,7 @@ function getCity(site?: SiteInfo | null): string {
 
 interface SubsidiariesVisualizationProps {
   subsidiaries: SubsidiaryDetail[];
+  commercialPresences?: CommercialPresence[];
   highlightedSubsidiary?: SubsidiaryDetail | null;
   onSubsidiarySelect?: (subsidiary: SubsidiaryDetail) => void;
 }
@@ -302,15 +301,17 @@ interface NodeData {
   country: string;
   city: string;
   confidence: number;
-  type: "main" | "subsidiary";
+  type: "main" | "subsidiary" | "commercial";
   latitude: number;
   longitude: number;
   siteLabel?: string | null;
   subsidiary?: SubsidiaryDetail;
+  commercialPresence?: CommercialPresence;
 }
 
 export function SubsidiariesVisualization({
   subsidiaries,
+  commercialPresences = [],
   highlightedSubsidiary,
   onSubsidiarySelect,
 }: SubsidiariesVisualizationProps) {
@@ -402,11 +403,37 @@ export function SubsidiariesVisualization({
       // });
     });
 
+    // Ajouter les présences commerciales à la carte
+    commercialPresences.forEach((presence, idx) => {
+      const location = presence.location;
+      const coords = getCoordinates(location, undefined);
+
+      if (!coords) return;
+
+      const [latitude, longitude] = coords;
+      const key = `commercial-${latitude.toFixed(4)}-${longitude.toFixed(4)}-${idx}`;
+
+      if (markerMap.has(key)) return;
+
+      markerMap.set(key, {
+        id: key,
+        name: presence.name,
+        country: location.country || "",
+        city: location.city || "",
+        confidence: typeof presence.confidence === "number" ? presence.confidence : 0,
+        type: "commercial",
+        siteLabel: presence.type,
+        commercialPresence: presence,
+        latitude,
+        longitude,
+      });
+    });
+
     return {
       nodes: Array.from(markerMap.values()),
       locatedSubsidiaries: located,
     };
-  }, [safeSubsidiaries]);
+  }, [safeSubsidiaries, commercialPresences]);
 
   useEffect(() => {
     if (highlightedSubsidiary) {
@@ -447,12 +474,11 @@ export function SubsidiariesVisualization({
 
   const locatedCount = locatedSubsidiaries.size;
   const totalSubsidiaries = safeSubsidiaries.length;
-  const missingCount = Math.max(totalSubsidiaries - locatedCount, 0);
+  const commercialCount = nodes.filter(n => n.type === "commercial").length;
+  const totalCommercial = commercialPresences.length;
 
   return (
     <Card className="relative z-10">
-      {/* Injection des styles CSS */}
-      <style dangerouslySetInnerHTML={{ __html: markerStyles }} />
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Building2 className="w-5 h-5 text-blue-600" />
@@ -487,8 +513,7 @@ export function SubsidiariesVisualization({
             />
             {nodes.map((node) => {
               // Déterminer l'icône selon le type d'entité
-              const isSubsidiary = node.subsidiary !== undefined;
-              const markerIcon = isSubsidiary ? subsidiaryIcon : commercialIcon;
+              const markerIcon = node.type === "commercial" ? commercialIcon : subsidiaryIcon;
               
               return (
                 <Marker
@@ -518,6 +543,11 @@ export function SubsidiariesVisualization({
           <span>
             Filiales localisées : {locatedCount}/{totalSubsidiaries}
           </span>
+          {totalCommercial > 0 && (
+            <span>
+              Présences commerciales : {commercialCount}/{totalCommercial}
+            </span>
+          )}
         </div>
 
         {/* Détails sous la carte supprimés pour éviter le doublon avec le panneau latéral */}

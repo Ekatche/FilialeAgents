@@ -6,7 +6,11 @@ Script de démarrage pour l'API d'extraction d'entreprise
 import os
 import sys
 import uvicorn
+from dotenv import load_dotenv
 from core.config import settings
+
+# Charger les variables d'environnement depuis le fichier .env
+load_dotenv()
 
 
 def main():

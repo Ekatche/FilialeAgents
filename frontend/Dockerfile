@@ -17,7 +17,13 @@ WORKDIR /app
 
 # Copie des fichiers de dépendances et installation
 COPY package.json package-lock.json* ./
-RUN npm install
+# Utiliser un registry npm plus stable et retry en cas d'erreur réseau
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm config set fetch-timeout 300000 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm cache clean --force && \
+    npm install --retry=3 --retry-delay=1000
 
 # Phase de build
 FROM base AS builder

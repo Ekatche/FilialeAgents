@@ -16,6 +16,7 @@ services:
       - DEBUG=false
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-filialeagents}
     volumes:
       - ./api/logs:/app/logs
     networks:
@@ -23,6 +24,7 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
+      - postgres
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
       interval: 30s
@@ -61,10 +63,33 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
 
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: openai-agents-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-filialeagents}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - openai-agents-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   openai-agents-network:
     driver: bridge
 
 volumes:
   redis_data:
+    driver: local
+  postgres_data:
     driver: local

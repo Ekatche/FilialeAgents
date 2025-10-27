@@ -76,6 +76,24 @@ export interface CompanyData {
   // 🆕 NOUVEAU : Présence commerciale
   commercial_presence_details: CommercialPresence[];
   
+  // 🆕 NOUVEAU : Coût de l'extraction
+  extraction_costs?: {
+    cost_usd: number;
+    cost_eur: number;
+    total_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
+    models_breakdown: Array<{
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      cost_usd: number;
+      cost_eur: number;
+    }>;
+    search_type: string;
+    exchange_rate: number;
+  } | null;
+  
   sources: SourceReference[];
   methodology_notes?: string[] | null;
   extraction_metadata?: ExtractionMetadata | null;

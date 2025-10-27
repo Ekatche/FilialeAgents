@@ -14,7 +14,7 @@ from agents import Runner
 from ..subs_agents import (
     meta_validator,
 )
-from ..subs_agents.data_validator import data_restructurer
+from ..subs_agents.data_validator_optimized import data_restructurer_optimized as data_restructurer
 from ..subs_agents.subsidiary_extractor import run_cartographe_with_metrics
 from ..config.extraction_config import MAX_TURNS
 from ..processors.data_processor import ExtractionState
@@ -38,6 +38,7 @@ async def _run_agent_with_retry(
     input: str,
     max_turns: int = 3,
     max_retries: int = 2,
+    session_id: Optional[str] = None,
 ) -> Any:
     """
     Exécute un agent avec retry automatique en cas d'erreur.
@@ -47,6 +48,7 @@ async def _run_agent_with_retry(
         input: Entrée pour l'agent
         max_turns: Nombre maximum de tours
         max_retries: Nombre maximum de tentatives
+        session_id: ID de session pour le tracking des tokens
         
     Returns:
         Résultat de l'agent
@@ -54,6 +56,34 @@ async def _run_agent_with_retry(
     for attempt in range(max_retries + 1):
         try:
             result = await Runner.run(agent, input=input, max_turns=max_turns)
+            
+            # Capturer les tokens réels si session_id disponible
+            if session_id and hasattr(result, 'context_wrapper') and hasattr(result.context_wrapper, 'usage'):
+                try:
+                    from company_agents.metrics.tool_tokens_tracker import ToolTokensTracker
+                    
+                    usage = result.context_wrapper.usage
+                    input_tokens = getattr(usage, 'input_tokens', 0)
+                    output_tokens = getattr(usage, 'output_tokens', 0)
+                    model = getattr(usage, 'model', 'gpt-4o')
+                    
+                    # Envoyer au tracker
+                    ToolTokensTracker.add_tool_usage(
+                        session_id=session_id,
+                        tool_name=agent.name,
+                        model=model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens
+                    )
+                    
+                    logger.info(
+                        f"💰 [TokenCapture] {agent.name}: "
+                        f"{input_tokens} in + {output_tokens} out = {input_tokens + output_tokens} total"
+                    )
+                    
+                except Exception as token_error:
+                    logger.warning(f"⚠️ Erreur capture tokens pour {agent.name}: {token_error}")
+            
             return result
         except Exception as exc:
             logger.warning(

@@ -44,6 +44,31 @@ class Settings:
     REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
     REDIS_TTL: int = int(os.getenv("REDIS_TTL", "7200"))  # 2h par défaut
 
+    # Configuration Database
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/filialeagents"
+    )
+
+    # Configuration OAuth HubSpot
+    HUBSPOT_CLIENT_ID: str = os.getenv("HUBSPOT_CLIENT_ID", "")
+    HUBSPOT_CLIENT_SECRET: str = os.getenv("HUBSPOT_CLIENT_SECRET", "")
+    HUBSPOT_REDIRECT_URI: str = os.getenv(
+        "HUBSPOT_REDIRECT_URI",
+        "http://localhost:8012/auth/hubspot/callback"
+    )
+    HUBSPOT_SCOPES: List[str] = [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.companies.read",
+    ]
+
+    # Configuration JWT
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
 
 # Instance globale des paramètres
 settings = Settings()

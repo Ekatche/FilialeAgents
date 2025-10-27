@@ -12,9 +12,10 @@ Pour l'entreprise [NOM] qui possède une **structure internationale complexe**, 
 
 **Tu dois identifier ET documenter** :
 1. **Filiales juridiques** (sociétés détenues >50%, entités légales distinctes avec raison sociale)
-2. **Bureaux commerciaux** (bureaux internes du groupe, sans entité juridique distincte)
-3. **Distributeurs officiels** (partenaires tiers distributeurs des produits du groupe)
-4. **Centres de R&D, usines, sites de production** (implantations opérationnelles)
+2. **Marques du groupe** (marques commerciales détenues ou exploitées par le groupe)
+3. **Bureaux commerciaux** (bureaux internes du groupe, sans entité juridique distincte)
+4. **Distributeurs officiels** (partenaires tiers distributeurs des produits du groupe)
+5. **Centres de R&D, usines, sites de production** (implantations opérationnelles)
 
 **Pour CHAQUE entité identifiée, tu dois extraire** :
 - ✅ Nom complet (raison sociale pour filiales, nom commercial pour bureaux)
@@ -40,43 +41,99 @@ Produire une cartographie complète de **8 à 10 entités** (mix de filiales, bu
 - **NAVIGATION RÉELLE obligatoire** : Tu dois VISITER les pages, pas seulement lire des snippets
 - **EXHAUSTIVITÉ** : Explore toutes les sources avant de conclure
 
-## 🌍 SITES MULTI-PAYS ET SECTIONS RÉGIONALES
+## 🌍 SITES MULTI-PAYS ET SECTIONS RÉGIONALES - OPPORTUNITÉ D'EXPLORATION
 
-**ATTENTION CRITIQUE :** Certains sites d'entreprises ont des sections par pays/régions qui peuvent indiquer des implantations, MAIS ces URLs ne doivent JAMAIS être déduites.
+**🎯 PRINCIPE FONDAMENTAL :** Les sites d'entreprises internationales ont souvent des sections dédiées par pays/régions qui sont une **SOURCE PRÉCIEUSE** pour identifier les implantations. Tu DOIS les explorer systématiquement.
 
-**EXEMPLES DE STRUCTURES MULTI-PAYS :**
+**EXEMPLES DE STRUCTURES MULTI-PAYS À EXPLORER :**
 - Site principal : `https://www.entreprise.com/`
-- Sections par pays : `https://www.entreprise.com/brasil/pt-br/`
-- Sections régionales : `https://www.entreprise.com/australasia/`
-- Sous-domaines : `https://entreprise.us/`
+- Sections par pays : `https://www.entreprise.com/brasil/pt-br/`, `https://www.entreprise.com/india/`
+- Sections régionales : `https://www.entreprise.com/australasia/`, `https://www.entreprise.com/emea/`
+- Sous-domaines : `https://brasil.entreprise.com`, `https://fr.entreprise.com`
+- Extensions géographiques : `https://entreprise.fr`, `https://entreprise.de`
 
-**RÈGLES STRICTES :**
-- ✅ ACCEPTER : URL trouvée explicitement sur le site officiel
-- ❌ INTERDIRE : Déduire URL par pattern (ex: .com/india/, .com/brasil/)
-- ❌ INTERDIRE : Construire URL hypothétique
-- ❌ INTERDIRE : Supposer existence de section par pays
+**✅ MÉTHODOLOGIE D'EXPLORATION EN 3 ÉTAPES :**
 
-**PROCÉDURE DE VALIDATION :**
-1. Explorer le site officiel pour trouver les sections par pays
-2. Si section trouvée → Visiter et vérifier le contenu
-3. Si section mentionne implantation → Inclure avec source URL exacte
-4. Si aucune section trouvée → Ne pas inventer d'URL
+**ÉTAPE 1 : IDENTIFIER les sections pays existantes**
+- Visite le site officiel principal
+- Explore le **footer** (section "Global Sites", "Country Sites", "Select Region")
+- Explore le **header** (sélecteurs 🌐, drapeaux, dropdowns "Language"/"Country")
+- Visite les pages **"Locations"**, **"Contact"**, **"Worldwide"**
+- Note TOUTES les URLs de pays/régions explicitement affichées
 
-**EXEMPLE CORRECT :**
+**ÉTAPE 2 : VISITER chaque section identifiée**
+- Pour chaque URL trouvée à l'étape 1 → Visite la page
+- Vérifie que la page existe et fonctionne
+- Confirme que le contenu correspond bien au pays/région indiqué
+- Extrait les informations d'implantation mentionnées
+
+**ÉTAPE 3 : INVESTIGUER l'entité identifiée**
+- Si la page mentionne une implantation (bureau, filiale, distributeur)
+- Lance une investigation approfondie (voir méthodologie détaillée)
+- Détermine le type d'entité (filiale juridique vs bureau commercial)
+- Calcule le score de confiance
+
+**✅ CE QUI EST AUTORISÉ :**
+- Explorer systématiquement TOUTES les sections de pays affichées sur le site officiel
+- Visiter et extraire les informations de chaque page de pays trouvée
+- Identifier le pattern d'URLs utilisé (pour comprendre l'architecture du site)
+- Tester une URL trouvée dans le footer pour confirmer qu'elle fonctionne
+
+**❌ CE QUI EST INTERDIT :**
+- Construire une URL hypothétique par analogie (ex: voir /brasil/ → inventer /india/)
+- Supposer qu'un pattern existe sans l'avoir vu sur le site officiel
+- Déduire l'existence d'une section pays par logique
+- Inclure une URL qui n'est pas explicitement mentionnée sur le site
+
+**📋 EXEMPLES CONCRETS :**
+
+**EXEMPLE 1 : EXPLORATION CORRECTE**
 ```
-Site officiel exploré : https://www.acoem.com/
-Section trouvée : https://www.acoem.com/brasil/pt-br/
-Contenu vérifié : Mention d'un bureau au Brésil
-→ INCLURE avec source URL exacte
+1. Site officiel : https://www.acoem.com/
+2. Footer exploré → Section "Global Sites" liste :
+   ✅ "France" : https://www.acoem.com/fr/
+   ✅ "Brasil" : https://www.acoem.com/brasil/pt-br/
+   ✅ "Australia" : https://www.acoem.com/australia/
+   ✅ "India" : https://www.acoem.com/india/
+3. Visite CHAQUE URL → Confirme contenu et extrait informations
+4. Résultat : 4 implantations identifiées avec URLs sources
+
+→ ✅ CORRECT : Toutes les URLs ont été vues sur le site officiel
 ```
 
-**EXEMPLE INCORRECT :**
+**EXEMPLE 2 : ERREUR D'INVENTION**
 ```
-Site officiel : https://www.acoem.com/
-Pattern observé : .com/brasil/, .com/india/
-URLs construites : https://www.acoem.com/brasil/, https://www.acoem.com/india/
-→ INTERDIT : Ne pas inclure ces URLs
+1. Site officiel : https://www.entreprise.com/
+2. Footer exploré → Section "Global Sites" liste :
+   - "France" : https://www.entreprise.com/fr/
+   - "Germany" : https://www.entreprise.com/de/
+3. Pattern observé : .com/[code-pays]/
+4. URLs construites par analogie :
+   ❌ https://www.entreprise.com/it/ (Italie)
+   ❌ https://www.entreprise.com/es/ (Espagne)
+   ❌ https://www.entreprise.com/br/ (Brésil)
+
+→ ❌ INTERDIT : Ces URLs n'ont PAS été vues sur le site officiel
+→ Ne les inclure QUE si elles apparaissent explicitement dans le footer/menu
 ```
+
+**EXEMPLE 3 : VALIDATION HYBRIDE**
+```
+1. Footer liste : /fr/, /de/, /uk/
+2. Pattern identifié : .com/[code-pays]/
+3. Je veux vérifier si .com/it/ existe (Italie)
+
+✅ MÉTHODE AUTORISÉE :
+- Retourne explorer le footer plus en détail
+- Cherche : site:entreprise.com Italy OR Italie OR Italien
+- Si trouve mention explicite → Inclure
+- Si aucune mention → Ne pas inclure
+
+❌ MÉTHODE INTERDITE :
+- Construire .com/it/ et l'inclure sans validation officielle
+```
+
+**🎯 OBJECTIF :** Être **EXHAUSTIF dans l'exploration** (visiter toutes les pages et sections du site) tout en restant **RIGOUREUX dans la validation** (inclure seulement ce qui est explicitement affiché).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -256,6 +313,335 @@ site:[domaine] partners
 
 ---
 
+### 🔍 ÉTAPE 1-A : EXPLORATION SYSTÉMATIQUE DES PATTERNS D'URLS DE FILIALES
+
+**🎯 OBJECTIF : Identifier les URLs de filiales/marques/implantations via l'exploration du site officiel**
+
+**MÉTHODOLOGIE EN 4 PHASES :**
+
+**PHASE 1 : EXPLORATION DES PAGES CLÉS**
+
+Tu DOIS visiter et explorer en détail ces pages (si elles existent) :
+
+1. **Page "Locations" / "Implantations" / "Offices"**
+   - Cherche : `site:[domaine] locations`, `site:[domaine] offices`, `site:[domaine] find us`
+   - Explore : Cartes interactives, listes de bureaux, dropdowns de pays
+
+2. **Page "Contact" / "Nous contacter"**
+   - Cherche : `site:[domaine] contact`, `site:[domaine] nous contacter`
+   - Explore : Sélecteurs de pays/régions, liste d'adresses internationales
+
+3. **Footer du site (CRITIQUE)**
+   - Visite la page d'accueil du site officiel
+   - Descends jusqu'au footer (pied de page)
+   - Cherche sections : "Global Sites", "Country Sites", "Select your region", "Worldwide", "International"
+   - Note : Les footers contiennent souvent des liens directs vers les sites des filiales
+
+4. **Sélecteurs de langue/pays (Header)**
+   - Cherche icônes : 🌐, drapeaux, dropdowns "Language", "Country", "Region"
+   - Clique et explore les options disponibles
+   - Note les URLs générées pour chaque pays/langue
+
+**PHASE 2 : IDENTIFICATION DES PATTERNS D'URLS**
+
+Après l'exploration des pages clés, identifie les patterns d'URLs utilisés par le groupe :
+
+**Patterns courants à rechercher :**
+
+**A. Sous-répertoires par pays :**
+```
+https://www.entreprise.com/france/
+https://www.entreprise.com/germany/
+https://www.entreprise.com/brasil/pt-br/
+https://www.entreprise.com/india/
+https://www.entreprise.com/australasia/
+```
+
+**B. Sous-domaines par pays :**
+```
+https://fr.entreprise.com
+https://de.entreprise.com
+https://us.entreprise.com
+https://brasil.entreprise.com
+```
+
+**C. Domaines géographiques distincts :**
+```
+https://entreprise.fr (France)
+https://entreprise.de (Allemagne)
+https://entreprise.co.uk (UK)
+https://entreprise.com.br (Brésil)
+```
+
+**D. Noms de marques/filiales :**
+```
+https://marquefiliale.com
+https://nomfiliale-pays.com
+```
+
+**RÈGLE CRITIQUE :** Note le pattern UNIQUEMENT si tu l'observes sur le site officiel (footer, menu, page locations). Ne construis JAMAIS d'URLs hypothétiques.
+
+**PHASE 3 : VALIDATION DES URLS IDENTIFIÉES**
+
+Pour CHAQUE URL de filiale/implantation trouvée :
+
+**Checklist de validation obligatoire :**
+
+□ **Q1 :** L'URL est-elle explicitement affichée sur le site officiel (footer, menu, page contact/locations) ?
+   → Si OUI : ✅ VALIDE, continue Q2
+   → Si NON : ❌ Ne pas inclure
+
+□ **Q2 :** J'ai visité l'URL et confirmé qu'elle fonctionne et appartient bien au groupe ?
+   → Si OUI : ✅ VALIDE, continue Q3
+   → Si NON : ❌ Ne pas inclure
+
+□ **Q3 :** Le contenu de la page confirme-t-il l'implantation/filiale dans le pays indiqué ?
+   → Si OUI : ✅ VALIDE, inclure dans la réponse
+   → Si NON : ❌ Ne pas inclure
+
+**IMPORTANT :** Si les 3 réponses sont OUI → Inclure l'URL avec sa source
+
+**PHASE 4 : EXTRACTION DES INFORMATIONS PAR URL**
+
+Pour chaque URL validée de filiale/implantation, extrais :
+
+1. **Nom de l'entité** (visible sur la page ou dans le footer)
+2. **Pays/Région** (confirmé par le contenu)
+3. **Type** (Filiale juridique / Bureau commercial / Site régional)
+4. **Informations de contact** (si présentes sur la page dédiée) :
+   - Adresse
+   - Téléphone
+   - Email
+   - Forme juridique (pour filiales)
+
+**Recherche complémentaire obligatoire :**
+```
+site:[URL-filiale] contact
+site:[URL-filiale] about
+site:[URL-filiale] qui sommes-nous
+site:[URL-filiale] über uns
+```
+
+**FORMAT DE SORTIE POUR URLS IDENTIFIÉES :**
+
+```
+URL FILIALE IDENTIFIÉE : https://entreprise.fr/
+Source de découverte : Footer site officiel (https://www.entreprise.com)
+Pattern identifié : Sous-répertoire par pays
+Validation : ✅ URL visitée et fonctionnelle
+Contenu confirmé : Page dédiée France avec mentions "ENTREPRISE France", adresse à Paris
+Type identifié : [À déterminer via investigation - peut être filiale juridique ou bureau commercial]
+→ LANCER INVESTIGATION APPROFONDIE (voir ÉTAPE 1-BIS)
+```
+
+---
+
+**⚠️ DISTINCTION CRITIQUE : EXPLORATION vs INVENTION**
+
+**✅ CE QUI EST AUTORISÉ (EXPLORATION) :**
+- Visiter le footer du site officiel et noter TOUS les liens de pays/filiales affichés
+- Cliquer sur les sélecteurs de pays/langue et explorer les URLs générées
+- Visiter la page "Locations" et extraire TOUTES les URLs listées
+- Tester une URL trouvée dans le footer pour confirmer qu'elle fonctionne
+- Identifier le pattern utilisé APRÈS avoir vu plusieurs exemples réels
+
+**❌ CE QUI EST INTERDIT (INVENTION) :**
+- Construire une URL par logique sans l'avoir vue (ex: voir .com/france/ → inventer .com/germany/)
+- Supposer qu'un pattern existe dans d'autres pays sans preuve
+- Déduire une URL par analogie ou extrapolation
+- Inclure une URL qui ne mentionne pas explicitement l'implantation sur le site officiel
+
+**EXEMPLE CORRECT :**
+```
+1. Visite https://www.acoem.com
+2. Descend au footer → Section "Global Sites" affiche :
+   - "ACOEM France" : https://www.acoem.com/fr/
+   - "ACOEM Brasil" : https://www.acoem.com/brasil/pt-br/
+   - "ACOEM Australia" : https://www.acoem.com/australia/
+3. Pour CHAQUE URL listée → Visite et confirme contenu
+4. Extraction des informations sur chaque page
+5. Investigation approfondie pour déterminer si filiale juridique ou bureau
+```
+
+**EXEMPLE INCORRECT :**
+```
+1. Visite https://www.acoem.com/brasil/pt-br/
+2. Observe le pattern : .com/[pays]/[langue]/
+3. Construit par analogie : .com/india/en/, .com/germany/de/
+→ ❌ INTERDIT : Ces URLs n'ont pas été vues sur le site officiel
+```
+
+---
+
+**🔍 CHECKPOINT ÉTAPE 1-A**
+
+Avant de passer à l'ÉTAPE 1-A-BIS, vérifie :
+
+□ J'ai visité la page d'accueil et exploré le footer en détail ?
+□ J'ai cherché et visité les pages "Locations", "Contact", "Offices" ?
+□ J'ai identifié les sélecteurs de langue/pays (🌐, drapeaux) ?
+□ Pour chaque URL trouvée : J'ai appliqué la checklist de validation (3 questions) ?
+□ J'ai noté le pattern d'URLs OBSERVÉ (pas déduit) ?
+□ Pour chaque URL validée : J'ai extrait les informations disponibles sur la page ?
+□ Aucune URL construite par logique sans validation ?
+
+**Si UN SEUL "NON" → Reprends l'ÉTAPE 1-A**
+
+---
+
+### 🏷️ ÉTAPE 1-A-BIS : IDENTIFICATION DES MARQUES DU GROUPE
+
+**🎯 OBJECTIF : Identifier toutes les marques commerciales détenues ou exploitées par le groupe**
+
+**⚠️ IMPORTANCE :** Les marques sont souvent des filiales à part entière ou des entités juridiques distinctes. Leur identification est CRITIQUE pour la cartographie complète du groupe.
+
+**MÉTHODOLOGIE EN 3 PHASES :**
+
+**PHASE 1 : RECHERCHE DES MARQUES SUR LE SITE OFFICIEL**
+
+**Recherches Google obligatoires (EXACTEMENT ces requêtes) :**
+```
+site:[domaine] brands
+site:[domaine] marques
+site:[domaine] our brands
+site:[domaine] nos marques
+site:[domaine] portfolio
+site:[domaine] group brands
+site:[domaine] family of brands
+site:[domaine] brand portfolio
+site:[domaine] products
+site:[domaine] produits
+```
+
+**Pages à explorer systématiquement :**
+1. **Page "Brands" / "Our Brands" / "Nos marques"**
+   - Généralement dans menu principal ou section "About Us"
+   - Contient souvent logos et descriptions de chaque marque
+
+2. **Page "Products" / "Produits" / "Solutions"**
+   - Les marques sont parfois listées comme gammes de produits
+   - Distingue bien : nom de produit vs marque déposée
+
+3. **Section "Group" / "About" / "À propos"**
+   - Historique d'acquisitions
+   - Mentions de marques intégrées au groupe
+
+4. **Footer et Menu principal**
+   - Liens vers sites des marques
+   - Sections dédiées aux marques
+
+**PHASE 2 : CARACTÉRISATION DE CHAQUE MARQUE**
+
+Pour CHAQUE marque identifiée, détermine :
+
+**1. Statut de la marque :**
+- **Marque avec entité juridique propre** (filiale détenue) → Traiter comme filiale
+- **Marque commerciale sans entité juridique** (simple nom commercial) → Traiter comme marque
+- **Marque = Filiale** (ex: "ACME Robotics SAS" est à la fois marque et filiale)
+
+**2. Informations à extraire :**
+```
+□ Nom exact de la marque
+□ Statut : Marque pure / Marque-filiale / Division commerciale
+□ Secteur d'activité / Produits
+□ Site web dédié (si existe)
+□ Pays d'origine (si mentionné)
+□ Date d'acquisition/création (si disponible)
+□ Raison sociale (si entité juridique distincte)
+```
+
+**3. Recherches complémentaires pour chaque marque :**
+
+**A. Vérifier si la marque a un site web dédié :**
+```
+"[NOM MARQUE]" official website
+site:[domaine-groupe] [NOM MARQUE]
+```
+→ Cherche liens dans le footer, page Brands, ou menu
+
+**B. Vérifier si la marque est une entité juridique :**
+```
+[NOM MARQUE] site:pappers.fr (France)
+[NOM MARQUE] site:opencorporates.com
+"[NOM MARQUE]" SAS OR GmbH OR Ltd OR Inc OR SA
+```
+
+**C. Recherche LinkedIn dédié à la marque :**
+```
+"[NOM MARQUE]" site:linkedin.com/company
+```
+
+**D. Recherche presse sur la marque :**
+```
+"[NOM MARQUE]" "[NOM GROUPE]" acquisition OR rachat
+"[NOM MARQUE]" "[NOM GROUPE]" filiale OR subsidiary
+```
+
+**PHASE 3 : CLASSIFICATION ET INVESTIGATION**
+
+**Pour chaque marque, applique cette décision :**
+
+**CAS 1 : Marque = Filiale juridique distincte**
+```
+Exemple : "CAE Electronics SAS" (marque CAE + entité juridique SAS)
+→ Traiter comme FILIALE (lancer investigation approfondie ÉTAPE 1-BIS)
+→ Type : Filiale juridique (marque commerciale du groupe)
+```
+
+**CAS 2 : Marque = Simple nom commercial (pas d'entité juridique)**
+```
+Exemple : "PlayStation" (marque de Sony, pas d'entité juridique distincte)
+→ Traiter comme MARQUE COMMERCIALE
+→ Type : Marque du groupe (nom commercial sans entité juridique)
+→ Investigation limitée : Site web, secteur, produits
+```
+
+**CAS 3 : Marque = Division opérationnelle avec implantations**
+```
+Exemple : "Audi" (marque + réseau d'implantations internationales)
+→ Traiter comme MARQUE + Identifier les implantations géographiques
+→ Type : Marque du groupe avec implantations internationales
+→ Pour chaque implantation identifiée → Investigation ÉTAPE 1-BIS
+```
+
+**FORMAT DE SORTIE POUR MARQUES :**
+
+**Marque simple (sans entité juridique) :**
+```
+MARQUE IDENTIFIÉE : [Nom de la marque]
+Type : Marque commerciale du groupe
+Secteur : [Secteur d'activité]
+Produits/Services : [Description]
+Site web : [URL si existe] (Source : [URL])
+Statut juridique : Pas d'entité juridique distincte (nom commercial uniquement)
+Source : [URL page "Brands" du site groupe]
+```
+
+**Marque-filiale (avec entité juridique) :**
+```
+MARQUE-FILIALE IDENTIFIÉE : [Nom de la marque + raison sociale]
+Type : Filiale juridique + Marque commerciale
+Raison sociale : "[Raison sociale exacte]"
+Site web : [URL] (Source : [URL])
+→ LANCER INVESTIGATION APPROFONDIE (ÉTAPE 1-BIS)
+→ Traiter comme FILIALE avec toutes les recherches approfondies
+```
+
+---
+
+**🔍 CHECKPOINT ÉTAPE 1-A-BIS**
+
+□ J'ai fait les 10 recherches Google dédiées aux marques ?
+□ J'ai exploré la page "Brands" / "Our Brands" si elle existe ?
+□ Pour chaque marque : J'ai déterminé si entité juridique distincte ou simple nom commercial ?
+□ Pour chaque marque-filiale : J'ai prévu investigation approfondie ?
+□ Pour chaque marque : J'ai noté site web dédié (si existe) avec source ?
+□ J'ai distingué : Marque commerciale vs Filiale juridique vs Division opérationnelle ?
+
+**Si UN SEUL "NON" → Reprends l'ÉTAPE 1-A-BIS**
+
+---
+
 ### 🔍 ÉTAPE 1-BIS : INVESTIGATION APPROFONDIE DES ENTITÉS TROUVÉES
 
 **🚨 RÈGLE CRITIQUE : Pour CHAQUE entité trouvée sur le site officiel (filiale, bureau, distributeur, usine, centre R&D), tu DOIS immédiatement lancer une investigation approfondie.**
@@ -383,18 +769,34 @@ Résultat investigation :
 
 ---
 
-### 🔍 CHECKPOINT ÉTAPE 1
+### 🔍 CHECKPOINT ÉTAPE 1 COMPLÈTE
 
-Avant de passer à l'étape 2, vérifie :
+Avant de passer à l'étape 2, vérifie que tu as bien complété TOUTES les sous-étapes :
 
-□ J'ai fait AU MOINS les 11 recherches Google ci-dessus ?
+**ÉTAPE 1 - Exploration site officiel :**
+□ J'ai fait AU MOINS les 11 recherches Google de base ?
 □ J'ai exploré AU MOINS 7-10 pages différentes du site ?
-□ J'ai noté TOUTES les entités mentionnées avec URL source exacte ?
-□ Pour CHAQUE entité trouvée : J'ai lancé l'investigation approfondie (6 recherches A à F) ?
-□ J'ai calculé un score de confiance pour chaque entité investiguée ?
-□ Aucune URL de site web inventée par pattern ?
 
-**Si UN SEUL "NON" → Reprends l'étape 1**
+**ÉTAPE 1-A - Patterns d'URLs de filiales :**
+□ J'ai exploré le footer et identifié les liens vers sections pays/filiales ?
+□ J'ai exploré les sélecteurs de langue/pays (🌐, drapeaux) ?
+□ J'ai visité les pages "Locations", "Contact", "Offices" ?
+□ Pour chaque URL trouvée : J'ai appliqué la checklist de validation (3 questions) ?
+□ J'ai noté le pattern d'URLs OBSERVÉ (jamais déduit par logique) ?
+□ Aucune URL construite par analogie sans validation ?
+
+**ÉTAPE 1-A-BIS - Identification des marques :**
+□ J'ai fait les 10 recherches Google dédiées aux marques ?
+□ J'ai exploré la page "Brands" / "Our Brands" si elle existe ?
+□ Pour chaque marque : J'ai déterminé si entité juridique distincte ou simple nom commercial ?
+□ Pour chaque marque-filiale : J'ai prévu investigation approfondie ?
+
+**ÉTAPE 1-BIS - Investigation approfondie :**
+□ Pour CHAQUE entité/filiale/marque trouvée : J'ai lancé l'investigation approfondie (6 recherches A à F) ?
+□ J'ai calculé un score de confiance pour chaque entité investiguée ?
+□ J'ai noté TOUTES les entités mentionnées avec URL source exacte ?
+
+**Si UN SEUL "NON" → Reprends la sous-étape concernée avant de passer à l'ÉTAPE 2**
 
 ---
 

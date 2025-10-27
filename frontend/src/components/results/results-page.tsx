@@ -20,6 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { api, CompanyData, SubsidiaryDetail } from "@/lib/api";
 import { DebugWrapper } from "@/components/debug/debug-wrapper";
 import { CompanyOverview } from "@/components/company/company-overview";
+import { CommercialPresenceList } from "@/components/company/commercial-presence-list";
+import { SimpleCostCard } from "@/components/costs/SimpleCostCard";
 import dynamic from "next/dynamic";
 
 const SubsidiariesVisualization = dynamic(
@@ -637,6 +639,20 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
                 </DebugWrapper>
               </motion.div>
 
+              {/* Affichage du coût de l'extraction */}
+              {companyData?.extraction_costs && (
+                <motion.div
+                  variants={fadeInUp}
+                  initial="hidden"
+                  animate="visible"
+                  transition={{ delay: 0.1 }}
+                >
+                  <DebugWrapper name="SimpleCostCard">
+                    <SimpleCostCard costData={companyData.extraction_costs} />
+                  </DebugWrapper>
+                </motion.div>
+              )}
+
               {/* Cartographie dynamique avec panneau de détails */}
               {hasSubsidiaries(companyData) && (
                 <motion.div
@@ -661,6 +677,7 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
                     <DebugWrapper name="SubsidiariesVisualization">
                       <SubsidiariesVisualization
                         subsidiaries={companyData?.subsidiaries_details ?? []}
+                        commercialPresences={companyData?.commercial_presence_details ?? []}
                         highlightedSubsidiary={selectedSubsidiary}
                         onSubsidiarySelect={setSelectedSubsidiary}
                       />
@@ -683,6 +700,22 @@ export function ResultsPage({ initialData }: ResultsPageProps) {
                       totalCount={
                         companyData?.subsidiaries_details?.length || 0
                       }
+                    />
+                  </DebugWrapper>
+                </motion.div>
+              )}
+
+              {/* Présence commerciale - Après les cartes */}
+              {companyData?.commercial_presence_details && companyData.commercial_presence_details.length > 0 && (
+                <motion.div
+                  variants={fadeInUp}
+                  initial="hidden"
+                  animate="visible"
+                  transition={{ delay: 0.5 }}
+                >
+                  <DebugWrapper name="CommercialPresenceList">
+                    <CommercialPresenceList
+                      presences={companyData.commercial_presence_details}
                     />
                   </DebugWrapper>
                 </motion.div>

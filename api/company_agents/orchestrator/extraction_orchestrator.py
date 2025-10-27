@@ -20,6 +20,7 @@ from .agent_caller import (
     call_meta_validator,
     call_data_restructurer,
 )
+from ..context import set_session_context, clear_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,18 @@ async def orchestrate_extraction(
     """
     logger.info("🚀 Démarrage de l'orchestration d'extraction pour session=%s (deep_search=%s)", session_id, deep_search)
 
+    # Définir le session_id dans le contexte pour tous les tools
+    set_session_context(session_id)
+    logger.info(f"📌 Session context défini: {session_id}")
+
+    # Initialiser le tracker de tokens pour cette session
+    try:
+        from ..metrics.tool_tokens_tracker import ToolTokensTracker
+        ToolTokensTracker.start_session(session_id)
+        logger.info(f"🔧 ToolTokensTracker initialisé pour session: {session_id}")
+    except Exception as e:
+        logger.warning(f"⚠️ Impossible d'initialiser ToolTokensTracker: {e}")
+
     state = ExtractionState(
         session_id=session_id,
         raw_input=raw_input,
@@ -201,8 +214,38 @@ async def orchestrate_extraction(
                 if not validated_model.extraction_date:
                     validated_model.extraction_date = datetime.now(timezone.utc).isoformat()
 
+                # Agréger les tokens de tous les agents pour le calcul des coûts
+                from ..metrics import metrics_collector
+
+                logger.info(f"🔍 [DEBUG] Début agrégation tokens pour session {session_id}")
+
+                all_models_usage = []
+                agent_names = ["🔍 Éclaireur", "⛏️ Mineur", "🗺️ Cartographe", "⚖️ Superviseur", "🔄 Restructurateur"]
+
+                for agent_name in agent_names:
+                    agent_metrics = metrics_collector.get_agent_metrics(agent_name, session_id)
+                    logger.info(f"🔍 [DEBUG] Métriques pour {agent_name}: {agent_metrics is not None}")
+
+                    if agent_metrics:
+                        logger.info(f"🔍 [DEBUG] Performance metrics keys: {agent_metrics.performance_metrics.keys()}")
+                        if "tokens" in agent_metrics.performance_metrics:
+                            token_data = agent_metrics.performance_metrics["tokens"]
+                            all_models_usage.append(token_data)
+                            logger.info(f"💰 Ajouté {token_data['total_tokens']} tokens de {agent_name}")
+                        else:
+                            logger.warning(f"⚠️ Pas de clé 'tokens' dans performance_metrics pour {agent_name}")
+
+                # Ajouter les données de tokens au résultat
+                result = validated_model.model_dump()
+                if all_models_usage:
+                    result["models_usage_raw"] = all_models_usage
+                    logger.info(f"💰 Total de {len(all_models_usage)} agents avec données de tokens")
+                else:
+                    logger.warning(f"⚠️ Aucune donnée de tokens capturée pour la session {session_id}")
+                    logger.info(f"🔍 [DEBUG] Métriques disponibles dans collector: {list(metrics_collector.active_metrics.keys())}")
+
                 logger.info("✅ Extraction terminée avec succès pour session=%s", session_id)
-                return validated_model.model_dump()
+                return result
             except ValidationError as exc:
                 logger.error(
                     "❌ Erreur de validation CompanyInfo pour session=%s: %s",
@@ -229,3 +272,7 @@ async def orchestrate_extraction(
             "session_id": session_id,
             "raw_input": raw_input,
         }
+    finally:
+        # Nettoyer le contexte de session
+        clear_session_context()
+        logger.info(f"🧹 Session context nettoyé: {session_id}")

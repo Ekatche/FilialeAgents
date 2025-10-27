@@ -3,12 +3,16 @@ API FastAPI pour l'extraction d'informations d'entreprise
 Version modulaire - Point d'entrée principal
 """
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from core.config import settings
+
+# Charger les variables d'environnement depuis le fichier .env
+load_dotenv()
 from core.security import setup_cors, setup_security_headers
 from core.lifespan import lifespan
 from middleware.logging import LoggingMiddleware
-from routers import health, extraction, websocket, tracking
+from routers import health, extraction, websocket, tracking, auth, costs
 
 # Création de l'application FastAPI
 app = FastAPI(
@@ -27,6 +31,8 @@ app.add_middleware(LoggingMiddleware)
 
 # Inclusion des routers
 app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(costs.router)
 app.include_router(extraction.router)
 app.include_router(websocket.router)
 app.include_router(tracking.router)
