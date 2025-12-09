@@ -14,8 +14,6 @@ services:
       - API_HOST=0.0.0.0
       - ENVIRONMENT=production
       - DEBUG=false
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-filialeagents}
     volumes:
       - ./api/logs:/app/logs
@@ -23,7 +21,6 @@ services:
       - openai-agents-network
     restart: unless-stopped
     depends_on:
-      - redis
       - postgres
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
@@ -50,19 +47,6 @@ services:
       - openai-agents-network
     restart: unless-stopped
 
-  # Redis pour le cache (optionnel)
-  redis:
-    image: redis:7-alpine
-    container_name: openai-agents-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - openai-agents-network
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
@@ -84,12 +68,31 @@ services:
       timeout: 5s
       retries: 5
 
+  # pgAdmin - Interface d'administration PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: openai-agents-pgadmin
+    ports:
+      - "5050:80"  # Port 5050 pour pgAdmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@filialeagents.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+      - PGADMIN_CONFIG_SERVER_MODE=False
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - openai-agents-network
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
 networks:
   openai-agents-network:
     driver: bridge
 
 volumes:
-  redis_data:
-    driver: local
   postgres_data:
+    driver: local
+  pgadmin_data:
     driver: local

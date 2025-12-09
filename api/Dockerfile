@@ -31,13 +31,19 @@ RUN pip install uv
 COPY pyproject.toml uv.lock ./
 
 # Installation des dépendances Python avec uv
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 # Copie du code source API
 COPY api/ .
 
+# Copie et rend exécutable le script d'entrypoint
+COPY api/docker-entrypoint.sh /app/docker-entrypoint.sh
+
 # Création du répertoire de logs
 RUN mkdir -p /app/logs
+
+# Rendre le script exécutable et ajuster les permissions
+RUN chmod +x /app/docker-entrypoint.sh
 
 # Utilisateur non-root pour la sécurité
 RUN useradd --create-home --shell /bin/bash app && \
@@ -47,9 +53,10 @@ USER app
 # Port d'exposition
 EXPOSE 8012
 
-# Health check (inclut maintenant la vérification WebSocket)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8012/health || exit 1
+# Health check (désactivé en production - Render gère ses propres healthchecks)
+# Utile uniquement pour Docker Compose local
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+#     CMD curl -f http://localhost:8012/health || exit 1
 
-# Commande de démarrage
-CMD ["uv", "run", "python", "start.py"]
+# Commande de démarrage (applique les migrations puis lance l'API)
+CMD ["/app/docker-entrypoint.sh"]

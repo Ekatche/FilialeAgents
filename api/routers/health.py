@@ -28,9 +28,18 @@ async def root():
     }
 
 
+@router.get("/health/live")
+async def liveness_check():
+    """
+    Endpoint ultra-léger pour les healthchecks (Render, K8s, etc.)
+    Retourne uniquement {"status": "ok"} sans aucune vérification
+    """
+    return {"status": "ok"}
+
+
 @router.get("/health", response_model=HealthCheckResponse)
 async def health_check():
-    """Vérification de l'état de l'API"""
+    """Vérification complète de l'état de l'API (pour monitoring)"""
     return HealthCheckResponse(
         status="healthy",
         timestamp=datetime.now().isoformat(),

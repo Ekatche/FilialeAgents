@@ -7,10 +7,12 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from core.database import get_db
-from models.db_models import User, Organization, UserRole
+from models.db_models import User, HubSpotPortal, UserRole
 from services.jwt_service import jwt_service
+from services.session_service import session_service
 
 
 # HTTP Bearer token scheme
@@ -39,9 +41,20 @@ async def get_current_user(
     # Verify and decode token
     token_data = jwt_service.verify_token(token, token_type="access")
 
-    # Load user from database
+    # Verify session is active
+    session = await session_service.get_session_by_token(token, db=db)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Load user from database with eager loading of hubspot_portal
     result = await db.execute(
-        select(User).where(User.id == token_data.user_id)
+        select(User)
+        .options(selectinload(User.hubspot_portal))
+        .where(User.id == token_data.user_id)
     )
     user = result.scalar_one_or_none()
 
@@ -103,41 +116,38 @@ async def require_admin(
     return current_user
 
 
-async def get_current_organization(
+async def get_current_portal(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
-) -> Organization:
+) -> HubSpotPortal:
     """
-    Get the organization of the current user.
+    Get the HubSpot portal of the current user.
 
     Args:
         current_user: Current active user
         db: Database session
 
     Returns:
-        Organization object
+        HubSpotPortal object
 
     Raises:
-        HTTPException: If organization not found or inactive
+        HTTPException: If portal not found or inactive
     """
-    result = await db.execute(
-        select(Organization).where(Organization.id == current_user.organization_id)
-    )
-    organization = result.scalar_one_or_none()
+    portal = current_user.hubspot_portal
 
-    if organization is None:
+    if portal is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            detail="Portal not found"
         )
 
-    if not organization.is_active:
+    if not portal.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization is inactive"
+            detail="Portal is inactive"
         )
 
-    return organization
+    return portal
 
 
 async def get_optional_current_user(
@@ -163,11 +173,13 @@ async def get_optional_current_user(
         token_data = jwt_service.verify_token(token, token_type="access")
 
         result = await db.execute(
-            select(User).where(User.id == token_data.user_id)
+            select(User)
+            .options(selectinload(User.hubspot_portal))
+            .where(User.id == token_data.user_id)
         )
         user = result.scalar_one_or_none()
 
         return user if user and user.is_active else None
 
-    except HTTPException:
+    except (HTTPException, Exception):
         return None

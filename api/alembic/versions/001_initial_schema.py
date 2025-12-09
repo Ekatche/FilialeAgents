@@ -19,11 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create enum types
-    op.execute("CREATE TYPE plantype AS ENUM ('free', 'starter', 'professional', 'enterprise')")
-    op.execute("CREATE TYPE userrole AS ENUM ('admin', 'member')")
-    op.execute("CREATE TYPE extractionstatus AS ENUM ('pending', 'running', 'completed', 'failed')")
-    op.execute("CREATE TYPE extractiontype AS ENUM ('name', 'url')")
+    # Create enum types (IF NOT EXISTS)
+    op.execute("DO $$ BEGIN CREATE TYPE userrole AS ENUM ('admin', 'member'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE extractionstatus AS ENUM ('pending', 'running', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE extractiontype AS ENUM ('name', 'url', 'hierarchical'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
 
     # Create organizations table
     op.create_table(
@@ -32,8 +31,6 @@ def upgrade() -> None:
         sa.Column('hubspot_company_id', sa.String(length=255), nullable=False, unique=True),
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('domain', sa.String(length=255), nullable=True),
-        sa.Column('plan_type', sa.Enum('free', 'starter', 'professional', 'enterprise', name='plantype'), nullable=False, server_default='free'),
-        sa.Column('max_searches_per_month', sa.Integer(), nullable=False, server_default='10'),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('settings', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -50,7 +47,7 @@ def upgrade() -> None:
         sa.Column('email', sa.String(length=255), nullable=False, unique=True),
         sa.Column('first_name', sa.String(length=255), nullable=True),
         sa.Column('last_name', sa.String(length=255), nullable=True),
-        sa.Column('role', sa.Enum('admin', 'member', name='userrole'), nullable=False, server_default='member'),
+        sa.Column('role', postgresql.ENUM('admin', 'member', name='userrole', create_type=False), nullable=False, server_default='member'),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -84,9 +81,9 @@ def upgrade() -> None:
         sa.Column('session_id', sa.String(length=255), nullable=False, unique=True),
         sa.Column('company_name', sa.String(length=500), nullable=False),
         sa.Column('company_url', sa.String(length=1000), nullable=True),
-        sa.Column('extraction_type', sa.Enum('name', 'url', name='extractiontype'), nullable=False),
+        sa.Column('extraction_type', postgresql.ENUM('name', 'url', 'hierarchical', name='extractiontype', create_type=False), nullable=False),
         sa.Column('extraction_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column('status', sa.Enum('pending', 'running', 'completed', 'failed', name='extractionstatus'), nullable=False, server_default='pending'),
+        sa.Column('status', postgresql.ENUM('pending', 'running', 'completed', 'failed', name='extractionstatus', create_type=False), nullable=False, server_default='pending'),
         sa.Column('error_message', sa.Text(), nullable=True),
         sa.Column('processing_time', sa.Float(), nullable=True),
         sa.Column('subsidiaries_count', sa.Integer(), nullable=False, server_default='0'),

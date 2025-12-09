@@ -112,6 +112,7 @@ dmypy.json
 *.log
 company_extraction.log
 enterprise_extraction.log
+api/logs/
 
 # Fichiers d'export
 *.csv
@@ -124,6 +125,7 @@ results_*.json
 .env
 .env.local
 .env.production
+.env.staging
 api_keys.txt
 secrets.txt
 
@@ -150,9 +152,20 @@ test_output/
 docker-compose.override.yml
 .dockerignore
 
+# Base de données locale
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic (conserver les versions)
+# Ignorer uniquement les fichiers temporaires
+api/alembic/*.pyc
+api/alembic/__pycache__/
+
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -165,3 +178,62 @@ docker-compose.override.yml
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# =======================================================
+# FRONTEND (Next.js)
+# =======================================================
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Next.js cache
+frontend/.cache/
+
+# Static files
+frontend/.vercel
+
+# Dependencies
+frontend/node_modules/
+
+# Environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+frontend/.env.development
+
+# Debug logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# TypeScript
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# =======================================================
+# UV (Package manager Python)
+# =======================================================
+
+# UV lock file (à conserver dans le repo)
+# uv.lock
+
+# UV cache
+.uv/
+
+# =======================================================
+# RENDER (Deployment)
+# =======================================================
+
+# Render local builds
+.render/
+
+# =======================================================
+# SUPABASE (si utilisé localement)
+# =======================================================
+
+# Supabase local files
+.supabase/
+supabase/.branches/
+supabase/.temp/

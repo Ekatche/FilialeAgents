@@ -48,14 +48,18 @@ Avant d’implémenter :
 - Créer **uniquement** si aucune structure adaptée n’existe, avec justification courte.  
 - Factoriser les duplications avérées vers helpers/services existants (ou nouveau module dédié **après** validation).
 
-# 📝 DOCUMENTATION (.md) — PRINCIPE D’ENRICHISSEMENT  
-- Avant de **créer** un nouveau fichier de documentation `.md`, **vérifier** s’il existe déjà un ou plusieurs fichiers `.md` pertinents (README, docs/…, etc).  
-- Si un fichier existe : **préférer l’enrichissement** (ajout d’informations pertinentes) plutôt que la création d’un nouveau fichier.  
+# 📝 DOCUMENTATION (.md) — PRINCIPE D'ENRICHISSEMENT & ORGANISATION  
+- **Emplacement** : Toute documentation générée (autre que `README.md` à la racine) **doit être placée dans le dossier `docs/`**.  
+- Avant de **créer** un nouveau fichier de documentation `.md`, **vérifier** s'il existe déjà un ou plusieurs fichiers `.md` pertinents (README, docs/…, etc).  
+- Si un fichier existe : **préférer l'enrichissement** (ajout d'informations pertinentes) plutôt que la création d'un nouveau fichier.  
 - Veiller à **ne pas surcharger** la documentation existante :  
   - maintenir la clarté et lisibilité ;  
-  - éviter les duplications d’informations ;  
-  - découper ou référencer si l’ajout devient volumineux.  
-- Si aucun fichier pertinent n’existe après vérification exhaustive, **alors** proposer la création d’un nouveau fichier `.md`, avec justification dans le plan.
+  - éviter les duplications d'informations ;  
+  - découper ou référencer si l'ajout devient volumineux.  
+- Si aucun fichier pertinent n'existe après vérification exhaustive, **alors** proposer la création d'un nouveau fichier `.md` dans `docs/`, avec justification dans le plan.  
+- **Nettoyage** : Le dossier `docs/` doit rester **propre** et ne contenir que de la documentation **utile et à jour**.  
+  - Lors de la création d'une nouvelle documentation, **identifier et supprimer** les anciennes qui ne sont plus pertinentes ou obsolètes.  
+  - Avant toute création dans `docs/`, vérifier les fichiers existants pour détecter les doublons ou versions obsolètes.
 
 # 🧪 TESTS — ASK-FIRST + AUTO-CLEAN
 - **Ne JAMAIS créer** de tests sans validation explicite.  

@@ -246,8 +246,7 @@ docker-logs-frontend: ## Affiche les logs du frontend
 
 docker-clean: ## Nettoie les conteneurs et images Docker
 	@echo "$(YELLOW)🧹 Nettoyage Docker...$(NC)"
-	docker-compose down --volumes --remove-orphans
-	docker system prune -f
+	docker-compose down --volumes --remove-orphans --rmi local
 	@echo "$(GREEN)✅ Nettoyage Docker terminé$(NC)"
 
 docker-status: ## Affiche le statut des conteneurs

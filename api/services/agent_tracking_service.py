@@ -6,65 +6,59 @@ import logging
 from typing import Dict, Optional, Any
 from datetime import datetime
 
-# Import conditionnel pour éviter l'erreur agents
-try:
-    from company_agents.extraction_manager import (
-        get_all_tools_names,
-        get_agent_info,
-        get_extraction_steps,
-        get_sub_agents_info,
-    )
-except ImportError:
-    # Fallback si le module agents n'est pas disponible
-    def get_all_tools_names():
-        return [
-            "run_analyze_and_info",
-            "information_extractor",
-            "subsidiary_extractor",
-            "meta_validator",
-        ]
 
-    def get_agent_info():
-        return {
-            "name": "Extraction Orchestrator",
-            "model": "gpt-4o-mini",
-            "tools_count": 4,
-            "max_turns": 8,
-        }
+def get_all_tools_names():
+    return [
+        "run_analyze_and_info",
+        "information_extractor",
+        "subsidiary_extractor",
+        "meta_validator",
+    ]
 
-    def get_extraction_steps():
-        return [
-            {
-                "name": "Identification de l'entité légale",
-                "agent": "🔍 Éclaireur",
-                "duration": 6,
-            },
-            {
-                "name": "Consolidation des informations clés",
-                "agent": "⛏️ Mineur",
-                "duration": 10,
-                "conditional": True,
-            },
-            {
-                "name": "Extraction des filiales",
-                "agent": "🗺️ Cartographe",
-                "duration": 12,
-            },
-            {
-                "name": "Validation de cohérence",
-                "agent": "⚖️ Superviseur",
-                "duration": 4,
-                "conditional": True,
-            },
-        ]
 
-    def get_sub_agents_info():
-        return {
-            "company_analyzer": {"max_turns": 2},
-            "information_extractor": {"max_turns": 2},
-            "subsidiary_extractor": {"max_turns": 3},
-            "meta_validator": {"max_turns": 1},
-        }
+def get_agent_info():
+    return {
+        "name": "Extraction Orchestrator",
+        "model": "gpt-4o-mini",
+        "tools_count": 4,
+        "max_turns": 8,
+    }
+
+
+def get_extraction_steps():
+    return [
+        {
+            "name": "Identification de l'entité légale",
+            "agent": "🔍 Éclaireur",
+            "duration": 6,
+        },
+        {
+            "name": "Consolidation des informations clés",
+            "agent": "⛏️ Mineur",
+            "duration": 10,
+            "conditional": True,
+        },
+        {
+            "name": "Extraction des filiales",
+            "agent": "🗺️ Cartographe",
+            "duration": 12,
+        },
+        {
+            "name": "Validation de cohérence",
+            "agent": "⚖️ Superviseur",
+            "duration": 4,
+            "conditional": True,
+        },
+    ]
+
+
+def get_sub_agents_info():
+    return {
+        "company_analyzer": {"max_turns": 2},
+        "information_extractor": {"max_turns": 2},
+        "subsidiary_extractor": {"max_turns": 3},
+        "meta_validator": {"max_turns": 1},
+    }
 
 
 from status import status_manager

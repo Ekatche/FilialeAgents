@@ -12,7 +12,8 @@ load_dotenv()
 from core.security import setup_cors, setup_security_headers
 from core.lifespan import lifespan
 from middleware.logging import LoggingMiddleware
-from routers import health, extraction, websocket, tracking, auth, costs
+from routers import health, websocket, tracking, auth, auth_local, costs, extractions, extractions_public
+from routers import extraction_hierarchical, hubspot_sync
 
 # Création de l'application FastAPI
 app = FastAPI(
@@ -32,8 +33,12 @@ app.add_middleware(LoggingMiddleware)
 # Inclusion des routers
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(auth_local.router)  # Auth locale pour tests
 app.include_router(costs.router)
-app.include_router(extraction.router)
+app.include_router(extractions.router)
+app.include_router(extractions_public.router)  # Public endpoints for local testing
+app.include_router(extraction_hierarchical.router)
+app.include_router(hubspot_sync.router)
 app.include_router(websocket.router)
 app.include_router(tracking.router)
 

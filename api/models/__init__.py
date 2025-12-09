@@ -7,18 +7,18 @@ from .auth import (
     TokenData,
     Token,
     HubSpotUserInfo,
+    HubSpotPortalInfo,
     RefreshTokenRequest,
     OAuthCallbackResponse,
 )
 
 from .db_models import (
-    Organization,
+    HubSpotPortal,
     User,
     OAuthToken,
     CompanyExtraction,
-    OrganizationUsage,
+    PortalUsage,
     UserRole,
-    PlanType,
     ExtractionStatus,
     ExtractionType,
 )
@@ -43,17 +43,17 @@ __all__ = [
     "TokenData",
     "Token",
     "HubSpotUserInfo",
+    "HubSpotPortalInfo",
     "RefreshTokenRequest",
     "OAuthCallbackResponse",
     # SQLAlchemy models
-    "Organization",
+    "HubSpotPortal",
     "User",
     "OAuthToken",
     "CompanyExtraction",
-    "OrganizationUsage",
+    "PortalUsage",
     # Enums
     "UserRole",
-    "PlanType",
     "ExtractionStatus",
     "ExtractionType",
     # Cost models

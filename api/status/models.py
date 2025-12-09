@@ -124,10 +124,16 @@ class ExtractionProgress:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convertit la progression en dictionnaire"""
+        # Gérer le cas où overall_status pourrait être une string ou un enum
+        overall_status_value = (
+            self.overall_status.value 
+            if hasattr(self.overall_status, 'value') 
+            else str(self.overall_status)
+        )
         return {
             "session_id": self.session_id,
             "company_name": self.company_name,
-            "overall_status": self.overall_status.value,
+            "overall_status": overall_status_value,
             "overall_progress": self.overall_progress,
             "agents": [agent.to_dict() for agent in self.agents],
             "started_at": self.started_at.isoformat(),

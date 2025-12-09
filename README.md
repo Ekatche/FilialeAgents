@@ -53,7 +53,12 @@ FilialeAgents est un système d'extraction d'informations d'entreprises basé su
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │ 3. 🗺️ CARTOGRAPHE (Subsidiary Extractor)               │
-│    → Mapping des filiales (via Perplexity Sonar)       │
+│    → Version Simple (deep_search=False) :                │
+│      • Recherche via gpt-4o-search-preview               │
+│      • Rapide et économique                              │
+│    → Version Avancée (deep_search=True) :                │
+│      • Recherche via Perplexity Sonar (sonar-pro)       │
+│      • Approfondie et exhaustive                         │
 │    → Extraction contacts (phone, email)                 │
 │    → Localisations avec coordonnées GPS                 │
 │    → Plan B: infos entreprise si pas de filiales        │
@@ -94,13 +99,29 @@ FilialeAgents est un système d'extraction d'informations d'entreprises basé su
 - **Spécificité** : Recherche strictement on-domain (`site:{target_domain}`) pour éviter homonymes
 
 #### 🗺️ Cartographe (Subsidiary Extractor)
-- **Modèle** : sonar-pro (Perplexity)
-- **Outils** : `research_subsidiaries_with_perplexity` (custom tool)
+
+Le Cartographe existe en **deux versions** selon le type de recherche :
+
+##### Version Simple (`deep_search=False`)
+- **Modèle** : gpt-4o
+- **Outil** : `subsidiary_search` (gpt-4o-search-preview)
+- **Pipeline** : Recherche rapide et économique
+- **Usage** : Extractions standard avec coût optimisé
 - **Output** : `SubsidiaryReport` (subsidiaries avec localisations, contacts, citations)
-- **Features** :
-  - Extraction téléphone + email pour chaque filiale
-  - Plan B : Si pas de filiales → infos détaillées entreprise principale
-  - Citations réelles de Perplexity (avec titres corrects)
+
+##### Version Avancée (`deep_search=True`)
+- **Modèle** : gpt-4o
+- **Outil** : `research_subsidiaries_with_perplexity` (sonar-pro / Perplexity)
+- **Pipeline** : Recherche approfondie et exhaustive
+- **Usage** : Extractions complexes nécessitant une recherche plus complète
+- **Output** : `SubsidiaryReport` (subsidiaries avec localisations, contacts, citations)
+
+##### Features Communes
+- Extraction téléphone + email pour chaque filiale
+- Distinction filiales juridiques vs présence commerciale
+- Plan B : Si pas de filiales → infos détaillées entreprise principale
+- Citations réelles des sources (avec titres corrects)
+- Géocodage automatique (coordonnées GPS)
 
 #### ⚖️ Superviseur (Meta Validator)
 - **Modèle** : gpt-4o-mini
@@ -149,6 +170,32 @@ Le système extrait **automatiquement** les coordonnées de contact :
 2. `company_info` direct (Mineur)
 3. `methodology_notes` (parsing intelligent)
 4. `analyzer_data` (Éclaireur)
+
+---
+
+### 🏢 Présence Commerciale
+
+Le système distingue deux types de présence internationale :
+
+#### Filiales Juridiques (`subsidiaries_details`)
+- Entités juridiques avec personnalité propre
+- Exemples : "ACOEM France SAS", "ACOEM Germany GmbH"
+- Extraction via Perplexity Sonar (recherche approfondie)
+
+#### Présence Commerciale (`commercial_presence_details`)
+- Bureaux commerciaux sans personnalité juridique
+- Partenaires, distributeurs autorisés, représentants
+- Types : `office`, `partner`, `distributor`, `representative`
+- Relations : `owned`, `partnership`, `authorized_distributor`, `franchise`
+
+**Exemples** :
+- Bureau commercial à Munich (type: `office`, relationship: `owned`)
+- Distributeur au Brésil (type: `distributor`, relationship: `authorized_distributor`)
+- Partenaire en Inde (type: `partner`, relationship: `partnership`)
+
+**Validation** :
+- Le **Superviseur** exclut les présences non corrélées
+- Le **Restructurateur** reclassifie automatiquement si erreur de catégorie
 
 ---
 
@@ -374,6 +421,79 @@ Le **Restructurateur** extrait ensuite `phone` et `email` de `main_company_info`
 
 ---
 
+### 💰 Tracking des Coûts d'Extraction
+
+Le système calcule automatiquement le coût de chaque extraction basé sur les tokens utilisés par les modèles AI.
+
+#### Format de Réponse
+
+Chaque `CompanyInfo` inclut un champ `extraction_costs` (optionnel) :
+
+```json
+{
+  "extraction_costs": {
+    "cost_usd": 0.0456,
+    "cost_eur": 0.0420,
+    "total_tokens": 75000,
+    "input_tokens": 55000,
+    "output_tokens": 20000,
+    "models_breakdown": [
+      {
+        "model": "gpt-4o-mini",
+        "input_tokens": 10000,
+        "output_tokens": 4000,
+        "cost_usd": 0.0030,
+        "cost_eur": 0.0028
+      },
+      {
+        "model": "sonar-pro",
+        "input_tokens": 20000,
+        "output_tokens": 10000,
+        "cost_usd": 0.0350,
+        "cost_eur": 0.0322
+      }
+    ],
+    "search_type": "advanced",
+    "exchange_rate": 0.92
+  }
+}
+```
+
+#### Endpoints de Coûts
+
+```bash
+# Statistiques de coûts par organisation
+GET /costs/organization/stats?start_date=2024-01-01&end_date=2024-12-31
+
+# Estimation du coût avant extraction
+POST /costs/estimate
+Content-Type: application/json
+{
+  "company_name": "Agence Nile",
+  "deep_search": false
+}
+
+# Détail d'une extraction spécifique
+GET /costs/extraction/{extraction_id}
+```
+
+#### Modèles et Tarification
+
+| Modèle | Usage | Prix Input (/1M) | Prix Output (/1M) |
+|--------|-------|------------------|-------------------|
+| `gpt-4o` | Tâches complexes | $2.50 | $10.00 |
+| `gpt-4o-mini` | Tâches standard | $0.15 | $0.60 |
+| `gpt-4o-search-preview` | Recherches web | $2.50 | $10.00 |
+| `sonar-pro` (Perplexity) | Recherches approfondies | $3.00 | $15.00 |
+
+**Coût typique** :
+- Recherche simple (`deep_search=False`) : ~0.01-0.05€
+- Recherche approfondie (`deep_search=True`) : ~0.05-0.20€
+
+**Note** : Le paramètre `deep_search` détermine quel Cartographe est utilisé (Simple ou Avancé).
+
+---
+
 ## 🚀 Démarrage Rapide
 
 ### Prérequis
@@ -517,6 +637,30 @@ GET /results/{session_id}
 
 # Tracking temps réel
 WS /ws/{session_id}
+
+# Extraction asynchrone (recommandé pour extractions longues)
+POST /extract-async
+Content-Type: application/json
+{
+  "company_name": "Agence Nile",
+  "deep_search": false
+}
+
+# Réponse : 202 Accepted
+{
+  "session_id": "abc-123",
+  "status": "started",
+  "message": "Extraction démarrée pour Agence Nile"
+}
+
+# Extraction depuis URL (asynchrone)
+POST /extract-from-url-async
+Content-Type: application/json
+{
+  "url": "https://www.agencenile.com/",
+  "include_subsidiaries": true,
+  "deep_search": false
+}
 ```
 
 #### Health & Monitoring
@@ -755,6 +899,8 @@ class CompanyInfo(BaseModel):
     phone: Optional[str]              # ← Ajouté
     email: Optional[str]              # ← Ajouté
     subsidiaries_details: List[SubsidiaryDetail]
+    # 🆕 Présence commerciale (bureaux, partenaires, distributeurs)
+    commercial_presence_details: List[CommercialPresence]
     sources: List[SourceRef]
     methodology_notes: Optional[List[str]]
     extraction_metadata: Optional[ExtractionMetadata]
@@ -785,6 +931,22 @@ class LocationInfo(BaseModel):
     email: Optional[str]              # ← Contact
     website: Optional[str]
     sources: Optional[List[SourceRef]]
+```
+
+#### CommercialPresence
+```python
+class CommercialPresence(BaseModel):
+    name: str                          # Nom du bureau/partenaire/distributeur
+    type: Literal["office", "partner", "distributor", "representative"]
+    relationship: Literal["owned", "partnership", "authorized_distributor", "franchise"]
+    activity: Optional[str]
+    location: LocationInfo
+    phone: Optional[str]
+    email: Optional[str]
+    confidence: Optional[float]
+    sources: List[SourceRef]
+    since_year: Optional[int]
+    status: Optional[Literal["active", "inactive", "unverified"]]
 ```
 
 ### Documentation Détaillée

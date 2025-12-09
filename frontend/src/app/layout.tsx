@@ -3,10 +3,12 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ConditionalHeader } from "@/components/dashboard/ConditionalHeader";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8012'),
   title: "Company Analyzer - Analyse intelligente d'entreprises",
   description:
     "Plateforme d'analyse d'entreprises utilisant l'IA pour extraire des informations détaillées sur les sociétés et leurs filiales.",
@@ -72,6 +74,7 @@ export default function RootLayout({
     <html lang="fr" className="scroll-smooth">
       <body className={inter.className}>
         <AuthProvider>
+          <ConditionalHeader />
           <main>{children}</main>
           <Toaster
             position="top-right"

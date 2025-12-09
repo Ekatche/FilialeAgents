@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import (
     get_current_active_user,
-    get_current_organization,
+    get_current_portal,
     require_admin
 )
-from models.db_models import User, Organization, CompanyExtraction
+from models.db_models import User, HubSpotPortal, CompanyExtraction
 from models.costs import (
     OrganizationCostStats,
     MonthlyCostStats,
@@ -24,27 +24,27 @@ from models.costs import (
     ExtractionCostDetail,
     ModelUsageDetail
 )
-from services.cost_tracking_service import cost_tracking_service
+from services.cost_stats_service import cost_stats_service
 
 
 router = APIRouter(prefix="/costs", tags=["Cost Tracking"])
 
 
-@router.get("/organization/stats", response_model=OrganizationCostStats)
-async def get_organization_cost_stats(
+@router.get("/portal/stats", response_model=OrganizationCostStats)
+async def get_portal_cost_stats(
     start_date: Optional[str] = Query(None, description="Start date (ISO format: YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (ISO format: YYYY-MM-DD)"),
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get cost statistics for the current user's organization.
+    Get cost statistics for the current user's HubSpot portal.
 
     Returns aggregated cost data for all extractions within the specified date range.
     If no dates are provided, returns statistics for all time.
 
-    **Permissions**: Any authenticated user can view their organization's stats.
+    **Permissions**: Any authenticated user can view their portal's stats.
     """
     # Parse dates if provided
     start_datetime = None
@@ -71,8 +71,8 @@ async def get_organization_cost_stats(
             )
 
     # Get statistics
-    stats = await cost_tracking_service.get_organization_costs(
-        organization_id=str(organization.id),
+    stats = await cost_stats_service.get_portal_costs(
+        portal_id=str(portal.id),
         start_date=start_datetime,
         end_date=end_datetime,
         db=db
@@ -81,12 +81,12 @@ async def get_organization_cost_stats(
     return OrganizationCostStats(**stats)
 
 
-@router.get("/organization/monthly/{year}/{month}", response_model=MonthlyCostStats)
+@router.get("/portal/monthly/{year}/{month}", response_model=MonthlyCostStats)
 async def get_monthly_cost_stats(
     year: int = Path(..., ge=2020, le=2100, description="Year"),
     month: int = Path(..., ge=1, le=12, description="Month (1-12)"),
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -94,11 +94,11 @@ async def get_monthly_cost_stats(
 
     Returns detailed cost breakdown for the specified month and year.
 
-    **Permissions**: Any authenticated user can view their organization's monthly stats.
+    **Permissions**: Any authenticated user can view their portal's monthly stats.
     """
     # Get monthly statistics
-    stats = await cost_tracking_service.get_monthly_costs(
-        organization_id=str(organization.id),
+    stats = await cost_stats_service.get_monthly_costs(
+        portal_id=str(portal.id),
         year=year,
         month=month,
         db=db
@@ -118,22 +118,22 @@ async def get_monthly_cost_stats(
     )
 
 
-@router.get("/organization/top-expensive", response_model=List[TopExpensiveSearch])
+@router.get("/portal/top-expensive", response_model=List[TopExpensiveSearch])
 async def get_top_expensive_searches(
     limit: int = Query(10, ge=1, le=100, description="Number of results to return"),
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get the most expensive searches for the organization.
+    Get the most expensive searches for the portal.
 
     Returns a list of extractions sorted by cost (descending).
 
-    **Permissions**: Any authenticated user can view their organization's expensive searches.
+    **Permissions**: Any authenticated user can view their portal's expensive searches.
     """
-    searches = await cost_tracking_service.get_top_expensive_searches(
-        organization_id=str(organization.id),
+    searches = await cost_stats_service.get_top_expensive_searches(
+        portal_id=str(portal.id),
         limit=limit,
         db=db
     )
@@ -161,20 +161,54 @@ async def estimate_extraction_cost(
 
     **Permissions**: Any authenticated user can request estimates.
     """
-    estimate = cost_tracking_service.estimate_search_cost(
+    # Estimation simplifiée (les coûts réels sont calculés par HierarchicalCostTracker)
+    # Pour l'instant, retourner une estimation basique
+    # TODO: Implémenter une estimation basée sur les données historiques si nécessaire
+    from services.hierarchical_cost_tracking import CostContext
+    
+    # Estimation basique : ~20K tokens pour une extraction simple
+    estimated_input = 10000
+    estimated_output = 10000
+    
+    if request.has_subsidiaries:
+        # Ajouter ~5K tokens par filiale
+        estimated_input += request.subsidiaries_count * 5000
+        estimated_output += request.subsidiaries_count * 3000
+    
+    # Utiliser gpt-4.1-mini comme modèle de référence
+    model = "gpt-4_1-mini"
+    pricing = CostContext._get_model_pricing(model)
+    cost_usd = (estimated_input * pricing["input"]) + (estimated_output * pricing["output"])
+    
+    # Taux de change approximatif
+    exchange_rate = 0.92
+    cost_eur = cost_usd * exchange_rate
+    
+    return CostEstimateResponse(
+        total_input_tokens=estimated_input,
+        total_output_tokens=estimated_output,
+        total_tokens=estimated_input + estimated_output,
+        total_cost_usd=float(cost_usd),
+        total_cost_eur=float(cost_eur),
+        models_breakdown=[{
+            "model": model,
+            "input_tokens": estimated_input,
+            "output_tokens": estimated_output,
+            "cost_usd": float(cost_usd),
+            "cost_eur": float(cost_eur)
+        }],
+        exchange_rate=exchange_rate,
+        estimate_type="approximate",
         extraction_type=request.extraction_type,
-        has_subsidiaries=request.has_subsidiaries,
-        subsidiaries_count=request.subsidiaries_count
+        estimated_subsidiaries=request.subsidiaries_count if request.has_subsidiaries else 0
     )
-
-    return CostEstimateResponse(**estimate)
 
 
 @router.get("/extraction/{extraction_id}", response_model=ExtractionCostDetail)
 async def get_extraction_cost_detail(
     extraction_id: str,
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -186,7 +220,7 @@ async def get_extraction_cost_detail(
     - Cost breakdown by AI model
     - Processing time and metadata
 
-    **Permissions**: Users can only view extractions from their organization.
+    **Permissions**: Users can only view extractions from their portal.
     """
     # Load extraction - try by ID first, then by session_id
     result = await db.execute(
@@ -203,8 +237,8 @@ async def get_extraction_cost_detail(
             detail="Extraction not found"
         )
 
-    # Verify extraction belongs to user's organization
-    if str(extraction.organization_id) != str(organization.id):
+    # Verify extraction belongs to user's portal
+    if str(extraction.hubspot_portal_id) != str(portal.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have access to this extraction"
@@ -231,7 +265,7 @@ async def get_extraction_cost_detail(
         models_breakdown=models_breakdown,
         subsidiaries_count=extraction.subsidiaries_count,
         processing_time=extraction.processing_time,
-        extraction_type=extraction.extraction_type.value
+            extraction_type=extraction.extraction_type,
     )
 
 
@@ -239,7 +273,7 @@ async def get_extraction_cost_detail(
 async def get_extraction_cost_by_session(
     session_id: str,
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -251,7 +285,7 @@ async def get_extraction_cost_by_session(
     - Cost breakdown by AI model
     - Processing time and metadata
 
-    **Permissions**: Users can only view extractions from their organization.
+    **Permissions**: Users can only view extractions from their portal.
     """
     # Load extraction by session_id
     result = await db.execute(
@@ -265,8 +299,8 @@ async def get_extraction_cost_by_session(
             detail="Extraction not found"
         )
 
-    # Verify extraction belongs to user's organization
-    if str(extraction.organization_id) != str(organization.id):
+    # Verify extraction belongs to user's portal
+    if str(extraction.hubspot_portal_id) != str(portal.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have access to this extraction"
@@ -285,7 +319,7 @@ async def get_extraction_cost_by_session(
         "models_breakdown": [],
         "subsidiaries_count": extraction.subsidiaries_count,
         "processing_time": extraction.processing_time,
-        "extraction_type": extraction.extraction_type.value
+        "extraction_type": extraction.extraction_type
     }
 
     # Add models breakdown if available
@@ -296,10 +330,10 @@ async def get_extraction_cost_by_session(
     return ExtractionCostDetail(**response_data)
 
 
-@router.get("/organization/current-month", response_model=MonthlyCostStats)
+@router.get("/portal/current-month", response_model=MonthlyCostStats)
 async def get_current_month_stats(
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -311,8 +345,8 @@ async def get_current_month_stats(
     """
     now = datetime.now()
 
-    stats = await cost_tracking_service.get_monthly_costs(
-        organization_id=str(organization.id),
+    stats = await cost_stats_service.get_monthly_costs(
+        portal_id=str(portal.id),
         year=now.year,
         month=now.month,
         db=db
@@ -331,10 +365,10 @@ async def get_current_month_stats(
     )
 
 
-@router.get("/organization/budget-status")
+@router.get("/portal/budget-status")
 async def get_budget_status(
     current_user: User = Depends(get_current_active_user),
-    organization: Organization = Depends(get_current_organization),
+    portal: HubSpotPortal = Depends(get_current_portal),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -347,22 +381,22 @@ async def get_budget_status(
     now = datetime.now()
 
     # Get current month stats
-    stats = await cost_tracking_service.get_monthly_costs(
-        organization_id=str(organization.id),
+    stats = await cost_stats_service.get_monthly_costs(
+        portal_id=str(portal.id),
         year=now.year,
         month=now.month,
         db=db
     )
 
-    # Get organization budget (if set)
-    monthly_budget = organization.max_searches_per_month  # You may want to add a budget_eur field
+    # Get portal budget (if set)
+    monthly_budget = portal.max_searches_per_month  # You may want to add a budget_eur field
 
     # Calculate budget info
-    # Note: You should add a monthly_budget_eur field to Organization model
+    # Note: You may want to add a monthly_budget_eur field to HubSpotPortal model
     # For now, we'll return basic info
     return {
-        "organization_id": str(organization.id),
-        "organization_name": organization.name,
+        "hubspot_portal_id": str(portal.id),
+        "portal_name": portal.name,
         "current_month": f"{now.year}-{now.month:02d}",
         "total_cost_eur": stats["total_cost_eur"],
         "total_searches": stats["total_searches"],
@@ -370,7 +404,7 @@ async def get_budget_status(
         "average_cost_per_search_eur": stats["average_cost_per_search_eur"],
         # Budget info (to be implemented)
         "has_budget_limit": False,  # Set to True when monthly_budget_eur is added
-        "monthly_budget_eur": None,  # Add this field to Organization
+        "monthly_budget_eur": None,  # Add this field to HubSpotPortal
         "remaining_budget_eur": None,
         "budget_usage_percentage": None,
         "warning_threshold_reached": False,  # 80% of budget
@@ -381,16 +415,63 @@ async def get_budget_status(
 @router.get("/health")
 async def costs_health_check():
     """
-    Health check for cost tracking service.
+    Health check for cost stats service.
 
-    Verifies that the cost tracking service is properly configured.
+    Verifies that the cost stats service is properly configured.
     """
-    from services.cost_tracking_service import ModelPricing
-
     return {
         "status": "healthy",
-        "models_configured": ["gpt-4o", "gpt-4o-mini", "gpt-4o-search-preview", "sonar-pro"],
-        "exchange_rate_usd_to_eur": float(ModelPricing.USD_TO_EUR_RATE),
-        "service": "cost_tracking",
-        "version": "1.0"
+        "service": "cost_stats",
+        "version": "2.0",
+        "note": "Cost calculation is handled by HierarchicalCostTracker"
     }
+
+
+# ==========================================
+#   ALIAS POUR COMPATIBILITÉ FRONTEND
+# ==========================================
+# Le frontend utilise "organization" mais l'API utilise "portal"
+# On ajoute des alias pour éviter de casser le frontend
+
+
+@router.get("/organization/current-month", response_model=MonthlyCostStats)
+async def get_current_month_stats_alias(
+    current_user: User = Depends(get_current_active_user),
+    portal: HubSpotPortal = Depends(get_current_portal),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias pour /portal/current-month (compatibilité frontend)"""
+    return await get_current_month_stats(current_user, portal, db)
+
+
+@router.get("/organization/monthly/{year}/{month}", response_model=MonthlyCostStats)
+async def get_monthly_cost_stats_alias(
+    year: int = Path(..., ge=2020, le=2100),
+    month: int = Path(..., ge=1, le=12),
+    current_user: User = Depends(get_current_active_user),
+    portal: HubSpotPortal = Depends(get_current_portal),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias pour /portal/monthly/{year}/{month} (compatibilité frontend)"""
+    return await get_monthly_cost_stats(year, month, current_user, portal, db)
+
+
+@router.get("/organization/top-expensive", response_model=List[TopExpensiveSearch])
+async def get_top_expensive_searches_alias(
+    limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
+    portal: HubSpotPortal = Depends(get_current_portal),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias pour /portal/top-expensive (compatibilité frontend)"""
+    return await get_top_expensive_searches(limit, current_user, portal, db)
+
+
+@router.get("/organization/budget-status")
+async def get_budget_status_alias(
+    current_user: User = Depends(get_current_active_user),
+    portal: HubSpotPortal = Depends(get_current_portal),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias pour /portal/budget-status (compatibilité frontend)"""
+    return await get_budget_status(current_user, portal, db)

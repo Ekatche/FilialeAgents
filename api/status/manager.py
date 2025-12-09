@@ -1,5 +1,6 @@
 """
 Gestionnaire principal des états des agents
+Utilise PostgreSQL pour la persistance (remplace Redis)
 """
 
 import asyncio
@@ -8,53 +9,30 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Callable
 
-import redis.asyncio as aioredis
-from core.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
+
+from core.database import AsyncSessionLocal
+from models.db_models import SessionState
 from .models import AgentStatus, AgentState, ExtractionProgress
 
 logger = logging.getLogger(__name__)
 
+# TTL par défaut pour les sessions (2 heures)
+DEFAULT_SESSION_TTL_HOURS = 2
+
 
 class AgentStatusManager:
-    """Gestionnaire des états des agents avec persistance Redis"""
+    """Gestionnaire des états des agents avec persistance PostgreSQL"""
 
     def __init__(self):
         # Cache local pour les abonnés WebSocket
         self.subscribers: Dict[str, List[asyncio.Queue]] = {}
-        # Connexion Redis
-        self.redis_client: Optional[aioredis.Redis] = None
-        # Sessions actives en mémoire
+        # Sessions actives en mémoire (cache)
         self.active_sessions: Dict[str, ExtractionProgress] = {}
         # Timers pour les étapes
         self.step_timers: Dict[str, Dict[str, asyncio.Task]] = {}
-
-    async def _get_redis(self) -> aioredis.Redis:
-        """Obtient la connexion Redis (lazy loading)"""
-        if self.redis_client is None:
-            try:
-                logger.info(
-                    f"🔧 Tentative de connexion Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
-                )
-                self.redis_client = aioredis.Redis(
-                    host=settings.REDIS_HOST,
-                    port=settings.REDIS_PORT,
-                    db=settings.REDIS_DB,
-                    password=settings.REDIS_PASSWORD,
-                    decode_responses=True,
-                )
-                # Test de connexion
-                await self.redis_client.ping()
-                logger.info(
-                    f"✅ Connexion Redis établie: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
-                )
-            except Exception as e:
-                logger.error(f"❌ Erreur connexion Redis: {e}")
-                logger.error(
-                    f"❌ Détails Redis: host={settings.REDIS_HOST}, port={settings.REDIS_PORT}, db={settings.REDIS_DB}"
-                )
-                self.redis_client = None
-                raise
-        return self.redis_client
 
     async def create_session(
         self, session_id: str, company_name: str
@@ -62,7 +40,7 @@ class AgentStatusManager:
         """Crée une nouvelle session d'extraction"""
         now = datetime.now()
 
-        # Définir les agents impliqués dans l'extraction (ordre d'exécution réel)
+        # Définir les agents impliqués dans l'extraction hiérarchique (ordre d'exécution réel)
         initial_agents = [
             AgentState(
                 name="🔍 Éclaireur",
@@ -73,7 +51,7 @@ class AgentStatusManager:
                 updated_at=now,
             ),
             AgentState(
-                name="⛏️ Mineur",
+                name="📊 Enrichisseur",
                 status=AgentStatus.WAITING,
                 progress=0.0,
                 message="En attente de démarrage",
@@ -89,15 +67,7 @@ class AgentStatusManager:
                 updated_at=now,
             ),
             AgentState(
-                name="⚖️ Superviseur",
-                status=AgentStatus.WAITING,
-                progress=0.0,
-                message="En attente de démarrage",
-                started_at=now,
-                updated_at=now,
-            ),
-            AgentState(
-                name="🔄 Restructurateur",
+                name="🔬 Extracteur",
                 status=AgentStatus.WAITING,
                 progress=0.0,
                 message="En attente de démarrage",
@@ -116,9 +86,9 @@ class AgentStatusManager:
             updated_at=now,
         )
 
-        # Sauvegarder en mémoire et Redis
+        # Sauvegarder en mémoire et PostgreSQL
         self.active_sessions[session_id] = progress
-        await self._save_to_redis(session_id, progress)
+        await self._save_to_db(session_id, progress)
 
         logger.info(
             f"🚀 Session créée: {session_id} pour {company_name} avec {len(initial_agents)} agents"
@@ -127,17 +97,31 @@ class AgentStatusManager:
 
         return progress
 
-    async def _save_to_redis(
+    async def _save_to_db(
         self, session_id: str, progress: ExtractionProgress
     ) -> bool:
-        """Sauvegarde les données en Redis"""
+        """Sauvegarde les données en PostgreSQL"""
         try:
-            redis = await self._get_redis()
-            data = json.dumps(progress.to_dict(), ensure_ascii=False)
-            await redis.setex(f"session:{session_id}", 7200, data)  # 2h TTL
-            return True
+            async with AsyncSessionLocal() as db:
+                # Chercher ou créer la session
+                result = await db.execute(
+                    select(SessionState).where(SessionState.session_id == session_id)
+                )
+                session_state = result.scalar_one_or_none()
+                
+                if not session_state:
+                    session_state = SessionState(session_id=session_id)
+                    db.add(session_state)
+                
+                # Mettre à jour les données
+                session_state.progress_data = progress.to_dict()
+                session_state.updated_at = datetime.now()
+                session_state.expires_at = datetime.now() + timedelta(hours=DEFAULT_SESSION_TTL_HOURS)
+                
+                await db.commit()
+                return True
         except Exception as e:
-            logger.error(f"❌ Erreur sauvegarde Redis session {session_id}: {e}")
+            logger.error(f"❌ Erreur sauvegarde PostgreSQL session {session_id}: {e}")
             return False
 
     async def _notify_subscribers(
@@ -166,35 +150,39 @@ class AgentStatusManager:
                 self.subscribers[session_id].remove(queue)
 
     async def _get_session(self, session_id: str) -> Optional[ExtractionProgress]:
-        """Récupère une session depuis Redis ou le cache local"""
+        """Récupère une session depuis PostgreSQL ou le cache local"""
         # D'abord vérifier le cache local
         if session_id in self.active_sessions:
             return self.active_sessions[session_id]
         
-        # Sinon, récupérer depuis Redis
+        # Sinon, récupérer depuis PostgreSQL
         try:
-            redis = await self._get_redis()
-            data = await redis.get(f"session:{session_id}")
-            if data:
-                session_data = json.loads(data)
-                progress = ExtractionProgress.from_dict(session_data)
-                self.active_sessions[session_id] = progress
-                return progress
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SessionState).where(SessionState.session_id == session_id)
+                )
+                session_state = result.scalar_one_or_none()
+                
+                if session_state:
+                    # Vérifier si la session n'est pas expirée
+                    if session_state.expires_at < datetime.now():
+                        logger.warning(f"⚠️ Session {session_id} expirée, suppression...")
+                        await db.delete(session_state)
+                        await db.commit()
+                        return None
+                    
+                    # Désérialiser les données
+                    progress = ExtractionProgress.from_dict(session_state.progress_data)
+                    self.active_sessions[session_id] = progress
+                    return progress
         except Exception as e:
-            logger.error(f"❌ Erreur récupération session {session_id} depuis Redis: {e}")
+            logger.error(f"❌ Erreur récupération session {session_id} depuis PostgreSQL: {e}")
         
         return None
 
     async def _save_session(self, session_id: str, progress: ExtractionProgress) -> bool:
-        """Sauvegarde une session en Redis"""
-        try:
-            redis = await self._get_redis()
-            data = json.dumps(progress.to_dict(), ensure_ascii=False)
-            await redis.setex(f"session:{session_id}", 7200, data)  # 2h TTL
-            return True
-        except Exception as e:
-            logger.error(f"❌ Erreur sauvegarde session {session_id}: {e}")
-            return False
+        """Sauvegarde une session en PostgreSQL"""
+        return await self._save_to_db(session_id, progress)
 
     def _update_overall_progress(self, progress_session: ExtractionProgress):
         """Met à jour la progression globale basée sur les agents individuels"""
@@ -261,7 +249,7 @@ class AgentStatusManager:
                     agent.progress = 1.0
                     agent.updated_at = datetime.now()
 
-            # Sauvegarder en Redis
+            # Sauvegarder en PostgreSQL
             await self._save_session(session_id, progress)
 
             # Notifier une dernière fois
@@ -270,22 +258,39 @@ class AgentStatusManager:
             logger.info(f"✅ Session terminée: {session_id}")
 
     async def store_extraction_results(self, session_id: str, extraction_data: dict):
-        """Stocke les données d'extraction finales dans Redis"""
+        """Stocke les données d'extraction finales dans PostgreSQL"""
         try:
-            redis = await self._get_redis()
-            data = json.dumps(extraction_data, ensure_ascii=False)
-            await redis.setex(f"results:{session_id}", 86400, data)  # 24h TTL
-            logger.info(f"💾 Résultats stockés pour session: {session_id}")
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SessionState).where(SessionState.session_id == session_id)
+                )
+                session_state = result.scalar_one_or_none()
+                
+                if not session_state:
+                    session_state = SessionState(session_id=session_id)
+                    db.add(session_state)
+                
+                session_state.results_data = extraction_data
+                session_state.updated_at = datetime.now()
+                # Résultats valides 24h
+                session_state.expires_at = datetime.now() + timedelta(hours=24)
+                
+                await db.commit()
+                logger.info(f"💾 Résultats stockés pour session: {session_id}")
         except Exception as e:
             logger.error(f"❌ Erreur stockage résultats session {session_id}: {e}")
 
     async def get_extraction_results(self, session_id: str) -> Optional[dict]:
-        """Récupère les données d'extraction finales depuis Redis"""
+        """Récupère les données d'extraction finales depuis PostgreSQL"""
         try:
-            redis = await self._get_redis()
-            data = await redis.get(f"results:{session_id}")
-            if data:
-                return json.loads(data)
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SessionState).where(SessionState.session_id == session_id)
+                )
+                session_state = result.scalar_one_or_none()
+                
+                if session_state and session_state.results_data:
+                    return session_state.results_data
         except Exception as e:
             logger.error(f"❌ Erreur récupération résultats session {session_id}: {e}")
         return None
@@ -304,7 +309,7 @@ class AgentStatusManager:
                     agent.message = f"Erreur: {error_message}"
                     agent.updated_at = datetime.now()
 
-            # Sauvegarder en Redis
+            # Sauvegarder en PostgreSQL
             await self._save_session(session_id, progress)
 
             # Notifier les abonnés
@@ -549,12 +554,27 @@ class AgentStatusManager:
                 break
 
         if not agent_found:
-            logger.warning(f"Agent non trouvé: {agent_name}")
+            logger.info(f"🆕 Nouvel agent détecté: {agent_name}")
+            # Créer et ajouter le nouvel agent
+            new_agent = AgentState(
+                name=agent_name,
+                status=status,
+                progress=progress,
+                message=message,
+                started_at=now,
+                updated_at=now,
+                error_message=error_message,
+                current_step=current_step,
+                total_steps=total_steps,
+                step_name=step_name,
+                performance_metrics=performance_metrics or {}
+            )
+            progress_session.agents.append(new_agent)
 
         # Mettre à jour la progression globale
         self._update_overall_progress(progress_session)
 
-        # Sauvegarder en Redis
+        # Sauvegarder en PostgreSQL
         await self._save_session(session_id, progress_session)
 
         # Notifier les abonnés
@@ -565,25 +585,41 @@ class AgentStatusManager:
         )
 
     async def cleanup_old_sessions(self, max_age_minutes: int = 60):
-        """Nettoie les anciennes sessions (Redis gère automatiquement TTL)"""
+        """Nettoie les anciennes sessions expirées depuis PostgreSQL"""
         try:
-            redis_client = await self._get_redis()
-            # Scanner les clés de sessions
-            keys = await redis_client.keys("session:*")
-
-            cleaned_count = 0
-            for key in keys:
-                session_id = key.replace("session:", "")
-                # Vérifier si la session existe encore
-                if not await redis_client.exists(key):
+            async with AsyncSessionLocal() as db:
+                # Supprimer les sessions expirées
+                cutoff_time = datetime.now()
+                result = await db.execute(
+                    delete(SessionState).where(SessionState.expires_at < cutoff_time)
+                )
+                deleted_count = result.rowcount
+                
+                await db.commit()
+                
+                # Nettoyer aussi le cache local et les abonnés pour les sessions expirées
+                # Récupérer toutes les sessions valides depuis la DB
+                valid_sessions_result = await db.execute(select(SessionState.session_id))
+                valid_session_ids = {row[0] for row in valid_sessions_result.all()}
+                
+                # Supprimer du cache local les sessions qui ne sont plus valides
+                expired_local_sessions = [
+                    session_id for session_id in self.active_sessions.keys()
+                    if session_id not in valid_session_ids
+                ]
+                
+                for session_id in expired_local_sessions:
+                    if session_id in self.active_sessions:
+                        del self.active_sessions[session_id]
                     if session_id in self.subscribers:
                         del self.subscribers[session_id]
-                    cleaned_count += 1
 
-            if cleaned_count > 0:
-                logger.info(f"🧹 {cleaned_count} sessions nettoyées")
+                if deleted_count > 0:
+                    logger.info(f"🧹 {deleted_count} sessions expirées nettoyées de PostgreSQL")
+                if expired_local_sessions:
+                    logger.info(f"🧹 {len(expired_local_sessions)} sessions nettoyées du cache local")
         except Exception as e:
-            logger.error(f"Erreur lors du nettoyage: {e}")
+            logger.error(f"❌ Erreur lors du nettoyage: {e}")
 
 
 # Instance globale

@@ -126,7 +126,7 @@ class JWTService:
             token_data = TokenData(
                 user_id=user_id,
                 email=payload.get("email"),
-                organization_id=payload.get("organization_id"),
+                portal_id=payload.get("portal_id"),
                 role=payload.get("role"),
                 exp=datetime.fromtimestamp(payload.get("exp")) if payload.get("exp") else None
             )
@@ -172,7 +172,7 @@ class JWTService:
     def create_tokens_for_user(
         user_id: str,
         email: str,
-        organization_id: str,
+        portal_id: str,
         role: str
     ) -> Dict[str, str]:
         """
@@ -181,7 +181,7 @@ class JWTService:
         Args:
             user_id: User UUID
             email: User email
-            organization_id: Organization UUID
+            portal_id: HubSpot Portal UUID
             role: User role
 
         Returns:
@@ -190,7 +190,7 @@ class JWTService:
         token_data = {
             "sub": user_id,
             "email": email,
-            "organization_id": organization_id,
+            "portal_id": portal_id,
             "role": role
         }
 

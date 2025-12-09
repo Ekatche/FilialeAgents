@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -14,34 +14,49 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
+// Interface alignée avec le backend (ExtractionProgress)
 interface DetailedAgentState {
   name: string;
   status: string;
   progress: number;
   message: string;
-  current_step: number;
-  total_steps: number;
-  step_name: string;
-  started_at: string | null;
-  updated_at: string | null;
-  error_message: string | null;
-  performance_metrics: {
+  current_step?: number;
+  total_steps?: number;
+  step_name?: string;
+  started_at?: string;
+  updated_at?: string;
+  error_message?: string | null;
+  performance_metrics?: {
     elapsed_time: number;
     steps_completed: number;
     steps_remaining: number;
     current_step_duration: number;
-    average_step_time: number;
+    average_step_time?: number;
+    estimated_total_time?: number;
   };
 }
 
+interface ExtractionProgress {
+  session_id: string;
+  company_name: string;
+  overall_status: string;
+  overall_progress: number;
+  agents: DetailedAgentState[];
+  started_at?: string;
+  updated_at?: string;
+  global_message?: string;
+}
+
 interface EnhancedAgentProgressProps {
-  sessionId: string;
-  onComplete?: () => void;
-  onError?: (error: string) => void;
+  progress: ExtractionProgress;
+  isConnected: boolean;
 }
 
 const translateDetailedStatus = (status: string) => {
   const translations: { [key: string]: string } = {
+    initializing: "Initialisation",
+    waiting: "En attente",
+    running: "En cours",
     analyzing_basic_info: "Analyse des informations de base",
     validating_company_name: "Validation du nom d'entreprise",
     researching_company_history: "Recherche de l'historique",
@@ -56,6 +71,8 @@ const translateDetailedStatus = (status: string) => {
     cross_referencing_sources: "Vérification croisée des sources",
     checking_consistency: "Vérification de la cohérence",
     finalizing_results: "Finalisation des résultats",
+    completed: "Terminé",
+    error: "Erreur",
   };
   return translations[status] || status;
 };
@@ -70,180 +87,96 @@ const getStatusColor = (status: string) => {
     return "bg-amber-100 text-amber-800";
   if (status.includes("processing") || status.includes("gathering"))
     return "bg-purple-100 text-purple-800";
+  if (status.includes("waiting")) return "bg-gray-100 text-gray-500";
   return "bg-gray-100 text-gray-800";
 };
 
 const getStatusIcon = (status: string, isActive: boolean) => {
   if (status.includes("error"))
     return <AlertCircle className="w-4 h-4 text-red-500" />;
-  if (status.includes("completed") || status.includes("finalizing"))
+  if (status.includes("completed"))
     return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-  if (isActive)
+  if (isActive || status.includes("running"))
     return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+  if (status.includes("waiting"))
+    return <Clock className="w-4 h-4 text-gray-400" />;
   return <Activity className="w-4 h-4 text-gray-500" />;
 };
 
 export function EnhancedAgentProgress({
-  sessionId,
-  onComplete,
-  onError,
+  progress,
+  isConnected,
 }: EnhancedAgentProgressProps) {
-  const [agents, setAgents] = useState<DetailedAgentState[]>([]);
-  const [overallProgress, setOverallProgress] = useState(0);
-  const [overallStatus, setOverallStatus] = useState("initializing");
-  const [companyName, setCompanyName] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
+  const { agents, overall_progress, overall_status, company_name, session_id } =
+    progress;
 
-  useEffect(() => {
-    let reconnectTimer: NodeJS.Timeout;
+  // État local pour l'interpolation fluide de la progression
+  const [displayProgress, setDisplayProgress] = React.useState(0);
 
-    const connect = () => {
-      try {
-        const wsUrl = `ws://localhost:8012/ws/enhanced-status/${sessionId}`;
-        console.log(`🔌 [ENHANCED] Connexion WebSocket granulaire: ${wsUrl}`);
-
-        const websocket = new WebSocket(wsUrl);
-        websocket.onopen = () => {
-          console.log(
-            `🔌 [ENHANCED] WebSocket granulaire connecté pour la session: ${sessionId}`
-          );
-          setIsConnected(true);
-        };
-
-        websocket.onmessage = (event) => {
-          try {
-            console.log(
-              "📡 [ENHANCED] Message WebSocket granulaire reçu:",
-              event.data
-            );
-
-            if (!event.data) {
-              console.log("❌ [ENHANCED] Message vide reçu");
-              return;
-            }
-
-            const data = JSON.parse(event.data);
-            console.log("📋 [ENHANCED] Données parsées:", data);
-
-            if (data && data.type === "agent_update") {
-              console.log("📡 [ENHANCED] Mise à jour d'agent reçue:", data);
-
-              // Mettre à jour l'agent spécifique
-              setAgents((prev) => {
-                const updated = [...prev];
-                const agentIndex = updated.findIndex(
-                  (a) => a.name === data.agent_name
-                );
-
-                if (agentIndex >= 0) {
-                  updated[agentIndex] = data.agent_state;
-                } else {
-                  updated.push(data.agent_state);
-                }
-
-                return updated;
-              });
-
-              setOverallProgress(data.overall_progress || 0);
-              setOverallStatus(data.overall_status || "processing");
-              setCompanyName(data.company_name || "");
-
-              console.log(
-                "🔄 [ENHANCED] États mis à jour - agents:",
-                data.agent_state?.name,
-                "progress:",
-                data.overall_progress,
-                "status:",
-                data.overall_status
-              );
-
-              // Vérifier si l'extraction est terminée
-              if (data.overall_status === "completed") {
-                console.log("✅ [ENHANCED] Extraction terminée");
-                if (onComplete) {
-                  onComplete();
-                }
-              } else if (data.overall_status === "error") {
-                console.log("❌ [ENHANCED] Erreur détectée");
-                const errorMsg =
-                  data.agent_state?.error_message || "Erreur inconnue";
-                if (onError) {
-                  onError(errorMsg);
-                }
-              }
-            }
-          } catch (err) {
-            console.error("❌ [ENHANCED] Erreur parsing WebSocket:", err);
-          }
-        };
-
-        websocket.onclose = (event) => {
-          console.log(
-            "🔌 [ENHANCED] WebSocket granulaire fermé:",
-            event.code,
-            event.reason
-          );
-          setIsConnected(false);
-
-          // Reconnexion automatique après 3 secondes si pas terminé
-          if (overallStatus !== "completed" && overallStatus !== "error") {
-            reconnectTimer = setTimeout(() => {
-              console.log("🔄 [ENHANCED] Tentative de reconnexion...");
-              connect();
-            }, 3000);
-          }
-        };
-
-        websocket.onerror = (err) => {
-          console.error("❌ [ENHANCED] Erreur WebSocket granulaire:", err);
-          setIsConnected(false);
-        };
-      } catch (err) {
-        console.error("❌ [ENHANCED] Erreur création WebSocket:", err);
-        setIsConnected(false);
+  // Effet pour lisser la progression
+  React.useEffect(() => {
+    const targetProgress = overall_progress * 100;
+    
+    // Si l'écart est grand (ex: début), on saute direct ou on accélère
+    // Sinon on lisse
+    let animationFrame: number;
+    
+    const updateProgress = () => {
+      setDisplayProgress(prev => {
+        const diff = targetProgress - prev;
+        
+        // Si on est très proche ou si on a dépassé (retour en arrière rare mais possible)
+        if (Math.abs(diff) < 0.5) return targetProgress;
+        
+        // Vitesse d'approche (plus on est loin, plus on va vite)
+        const step = Math.max(0.2, diff * 0.1); 
+        return Math.min(targetProgress, prev + step);
+      });
+      
+      if (Math.abs(targetProgress - displayProgress) > 0.5) {
+        animationFrame = requestAnimationFrame(updateProgress);
       }
     };
+    
+    animationFrame = requestAnimationFrame(updateProgress);
+    
+    return () => cancelAnimationFrame(animationFrame);
+  }, [overall_progress, displayProgress]);
 
-    connect();
+  // Effet de "fake progress" pour montrer que ça travaille quand même
+  // Si le statut est "running" ou "analyzing" et qu'on stagne
+  React.useEffect(() => {
+    const isActive = overall_status !== "completed" && overall_status !== "error" && overall_status !== "waiting";
+    if (!isActive) return;
 
-    return () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      // nothing to cleanup
-    };
-  }, [sessionId, overallStatus, onComplete, onError]);
+    const interval = setInterval(() => {
+      setDisplayProgress(prev => {
+        // Ne jamais dépasser la target réelle de trop (max +15% pour faire genre)
+        // Sauf si on est proche de 100%
+        const realTarget = overall_progress * 100;
+        const limit = Math.min(98, realTarget + 15); 
+        
+        if (prev >= limit) return prev;
+        
+        // Avance très doucement
+        return prev + 0.05; 
+      });
+    }, 100);
 
-  if (agents.length === 0) {
-    return (
-      <Card className="w-full max-w-4xl mx-auto">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-3 text-gray-600">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <div>
-              <h3 className="font-semibold">
-                Initialisation des agents granulaires...
-              </h3>
-              <p className="text-sm">Connexion au serveur en cours...</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+    return () => clearInterval(interval);
+  }, [overall_status, overall_progress]);
 
-  // Trouver l'agent actuellement actif
+  // Trouver l'agent actuellement actif (le premier qui n'est ni waiting ni completed/error)
+  // Ou celui explicitement marqué comme running/analyzing/etc.
   const activeAgent = agents.find(
     (agent) =>
-      agent.status.includes("analyzing") ||
-      agent.status.includes("searching") ||
-      agent.status.includes("extracting") ||
-      agent.status.includes("processing") ||
-      agent.status.includes("validating")
+      agent.status !== "waiting" &&
+      agent.status !== "completed" &&
+      agent.status !== "error"
   );
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Barre de progression globale prominente */}
       <Card className="border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50">
         <CardContent className="p-6">
@@ -252,15 +185,15 @@ export function EnhancedAgentProgress({
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {companyName
-                    ? `Analyse granulaire de ${companyName}`
-                    : "Analyse granulaire en cours"}
+                  {company_name
+                    ? `Analyse de ${company_name}`
+                    : "Analyse en cours"}
                 </h2>
                 <div className="flex items-center gap-3 mt-2">
                   <Badge
-                    className={`${getStatusColor(overallStatus)} px-3 py-1`}
+                    className={`${getStatusColor(overall_status)} px-3 py-1`}
                   >
-                    {translateDetailedStatus(overallStatus)}
+                    {translateDetailedStatus(overall_status)}
                   </Badge>
                   <div className="flex items-center gap-2">
                     <div
@@ -276,7 +209,7 @@ export function EnhancedAgentProgress({
               </div>
               <div className="text-right">
                 <div className="text-3xl font-bold text-blue-600">
-                  {Math.round(overallProgress * 100)}%
+                  {Math.round(displayProgress)}%
                 </div>
                 <div className="text-sm text-gray-500">Progression globale</div>
               </div>
@@ -291,10 +224,13 @@ export function EnhancedAgentProgress({
                 style={{ transformOrigin: "left" }}
               >
                 <Progress
-                  value={overallProgress * 100}
+                  value={displayProgress}
                   className="h-4 bg-white/50"
                 />
               </motion.div>
+              <p className="text-xs text-center text-gray-500 font-mono mt-2">
+                Session ID: {session_id}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -302,218 +238,159 @@ export function EnhancedAgentProgress({
 
       {/* Agent actuellement actif avec détails granulaires */}
       {activeAgent && (
-        <Card className="border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 shadow-lg">
-          <CardContent className="p-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <Loader2 className="w-8 h-8 text-amber-600 animate-spin" />
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse"></div>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-amber-900 mb-1">
-                    🤖 {activeAgent.name} en action
-                  </h3>
-                  <p className="text-amber-800 mb-2">{activeAgent.message}</p>
-                  <div className="flex items-center gap-4 text-sm text-amber-700">
-                    <span>{translateDetailedStatus(activeAgent.status)}</span>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          key={activeAgent.name}
+        >
+          <Card className="border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 shadow-lg">
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <Loader2 className="w-8 h-8 text-amber-600 animate-spin" />
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse"></div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-amber-900 mb-1">
+                      🤖 {activeAgent.name} en action
+                    </h3>
+                    <p className="text-amber-800 mb-2">{activeAgent.message}</p>
+                    <div className="flex items-center gap-4 text-sm text-amber-700">
+                      <Badge variant="outline" className="border-amber-200 bg-amber-100/50">
+                        {translateDetailedStatus(activeAgent.status)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-amber-700">
+                      {Math.round(activeAgent.progress * 100)}%
+                    </div>
+                    <div className="text-xs text-amber-600">Progression</div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-amber-700">
-                    {Math.round(activeAgent.progress * 100)}%
+
+                {/* Barre de progression de l'agent actif avec étapes */}
+                <div className="space-y-3">
+                  <div className="relative pt-1">
+                    <Progress
+                      value={activeAgent.progress * 100}
+                      className="h-3 bg-amber-100"
+                    />
                   </div>
-                  <div className="text-xs text-amber-600">Progression</div>
+
+                  {/* Métriques de performance (si disponibles) */}
+                  {activeAgent.performance_metrics && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-amber-700 mt-3 bg-white/30 p-3 rounded-lg">
+                      <div>
+                        <span className="font-medium">Temps écoulé:</span>
+                        <div className="text-lg">
+                          {Math.round(activeAgent.performance_metrics.elapsed_time)}s
+                        </div>
+                      </div>
+                      {activeAgent.performance_metrics.steps_remaining !== undefined && (
+                        <div>
+                          <span className="font-medium">Étapes restantes:</span>
+                          <div className="text-lg">
+                            {activeAgent.performance_metrics.steps_remaining}
+                          </div>
+                        </div>
+                      )}
+                      {activeAgent.step_name && (
+                        <div className="col-span-2">
+                          <span className="font-medium">Étape actuelle:</span>
+                          <div className="text-sm truncate font-medium">
+                            {activeAgent.step_name}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* Barre de progression de l'agent actif avec étapes */}
-              <div className="space-y-3">
-                <motion.div
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: 1 }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                  style={{ transformOrigin: "left" }}
-                >
-                  <Progress
-                    value={activeAgent.progress * 100}
-                    className="h-3 bg-amber-100"
-                  />
-                </motion.div>
-
-                {/* Métriques de performance */}
-                {activeAgent.performance_metrics && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-amber-700">
-                    <div>
-                      <span className="font-medium">Temps écoulé:</span>
-                      <br />
-                      {Math.round(activeAgent.performance_metrics.elapsed_time)}
-                      s
-                    </div>
-                    <div>
-                      <span className="font-medium">Étapes restantes:</span>
-                      <br />
-                      {activeAgent.performance_metrics.steps_remaining}
-                    </div>
-                    <div>
-                      <span className="font-medium">Durée étape actuelle:</span>
-                      <br />
-                      {Math.round(
-                        activeAgent.performance_metrics.current_step_duration
-                      )}
-                      s
-                    </div>
-                    <div>
-                      <span className="font-medium">Temps moyen/étape:</span>
-                      <br />
-                      {Math.round(
-                        activeAgent.performance_metrics.average_step_time
-                      )}
-                      s
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </motion.div>
       )}
-
-      {/* Visualisation avancée de la progression - Temporairement désactivée */}
-      {/* TODO: Réimplémenter AgentProgressVisualization si nécessaire */}
 
       {/* Liste de tous les agents avec leurs progressions granulaires */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-blue-600" />
-            État détaillé des agents granulaires
+            Détail des agents
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
           <div className="space-y-4">
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
               {agents.map((agent, index) => {
                 const isActive =
-                  agent.status.includes("analyzing") ||
-                  agent.status.includes("searching") ||
-                  agent.status.includes("extracting") ||
-                  agent.status.includes("processing") ||
-                  agent.status.includes("validating");
-                const isCompleted =
-                  agent.status.includes("completed") ||
-                  agent.status.includes("finalizing");
-                const hasError = agent.status.includes("error");
+                  agent.status !== "waiting" &&
+                  agent.status !== "completed" &&
+                  agent.status !== "error";
+                const isCompleted = agent.status === "completed";
+                const hasError = agent.status === "error";
+                const isWaiting = agent.status === "waiting";
 
                 return (
                   <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{
-                      duration: 0.4,
-                      ease: "easeOut",
-                      delay: index * 0.1,
-                    }}
-                    exit={{
-                      opacity: 0,
-                      y: -20,
-                      scale: 0.95,
-                      transition: { duration: 0.2 },
-                    }}
-                    layout
+                    key={agent.name}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.1 }}
                     className={`p-4 rounded-lg border transition-all duration-300 ${
                       isActive
-                        ? "border-blue-200 bg-blue-50 shadow-md"
+                        ? "border-blue-200 bg-blue-50 shadow-md scale-[1.02]"
                         : isCompleted
-                        ? "border-green-200 bg-green-50"
+                        ? "border-green-200 bg-green-50/50"
                         : hasError
                         ? "border-red-200 bg-red-50"
-                        : "border-gray-200 bg-white"
+                        : "border-gray-200 bg-gray-50/30"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
                         {getStatusIcon(agent.status, isActive)}
                         <div>
-                          <h4 className="font-medium text-gray-900">
+                          <h4 className={`font-medium ${isWaiting ? 'text-gray-500' : 'text-gray-900'}`}>
                             {agent.name}
                           </h4>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge
-                              className={`text-xs ${getStatusColor(
-                                agent.status
-                              )}`}
-                            >
-                              {translateDetailedStatus(agent.status)}
-                            </Badge>
-                          </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-lg font-semibold text-gray-900">
-                          {Math.round(agent.progress * 100)}%
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {agent.step_name}
-                        </div>
+                         <Badge
+                            className={`text-xs ${getStatusColor(
+                              agent.status
+                            )}`}
+                          >
+                            {translateDetailedStatus(agent.status)}
+                          </Badge>
                       </div>
                     </div>
 
                     {/* Message de l'agent */}
-                    <p className="text-sm text-gray-600 mb-3">
-                      {agent.message}
-                    </p>
+                    {!isWaiting && (
+                      <p className="text-sm text-gray-600 mb-3 ml-7">
+                        {agent.message}
+                      </p>
+                    )}
 
                     {/* Barre de progression individuelle avec animation */}
-                    <div className="space-y-2">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: "100%" }}
-                        transition={{ duration: 0.5, ease: "easeOut" }}
-                      >
+                    {!isWaiting && (
+                      <div className="space-y-2 ml-7">
                         <Progress
                           value={agent.progress * 100}
-                          className={`h-2 ${
+                          className={`h-1.5 ${
                             isActive
                               ? "bg-blue-100"
                               : isCompleted
                               ? "bg-green-100"
-                              : hasError
-                              ? "bg-red-100"
                               : "bg-gray-100"
                           }`}
                         />
-                      </motion.div>
-
-                      {/* Métriques de performance */}
-                      {agent.performance_metrics && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-500">
-                          <div>
-                            Temps:{" "}
-                            {Math.round(agent.performance_metrics.elapsed_time)}
-                            s
-                          </div>
-                          <div>
-                            Restant: {agent.performance_metrics.steps_remaining}
-                          </div>
-                          <div>
-                            Actuel:{" "}
-                            {Math.round(
-                              agent.performance_metrics.current_step_duration
-                            )}
-                            s
-                          </div>
-                          <div>
-                            Moyen:{" "}
-                            {Math.round(
-                              agent.performance_metrics.average_step_time
-                            )}
-                            s
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </motion.div>
                 );
               })}
@@ -521,12 +398,6 @@ export function EnhancedAgentProgress({
           </div>
         </CardContent>
       </Card>
-
-      {/* Footer avec timing */}
-      <div className="text-center text-xs text-gray-500">
-        <Clock className="w-3 h-3 inline mr-1" />
-        Session granulaire: {sessionId.slice(0, 8)}...
-      </div>
     </div>
   );
 }

@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from core.config import settings
-from models.db_models import Organization, User, OAuthToken, UserRole
-from models.auth import HubSpotUserInfo
+from models.db_models import HubSpotPortal, User, OAuthToken, UserRole
+from models.auth import HubSpotUserInfo, HubSpotPortalInfo
 
 
 class AuthService:
@@ -165,13 +165,70 @@ class AuthService:
                     detail=f"Error getting user info: {str(e)}"
                 )
 
+    async def get_hubspot_portal_info(
+        self,
+        access_token: str,
+        hub_id: int
+    ) -> HubSpotPortalInfo:
+        """
+        Get portal information from HubSpot.
+
+        Args:
+            access_token: HubSpot access token
+            hub_id: HubSpot portal/hub ID
+
+        Returns:
+            HubSpotPortalInfo object
+
+        Raises:
+            HTTPException: If API call fails
+        """
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                # Get account details
+                response = await client.get(
+                    "https://api.hubapi.com/account-info/v3/details",
+                    headers=headers
+                )
+                response.raise_for_status()
+                account_info = response.json()
+
+                return HubSpotPortalInfo(
+                    hubspot_portal_id=hub_id,
+                    name=account_info.get("companyName", f"HubSpot Portal {hub_id}"),
+                    domain=account_info.get("portalId", ""),  # ou autre champ pertinent
+                    timezone=account_info.get("timeZone", None)
+                )
+
+            except httpx.HTTPStatusError as e:
+                # If API fails, return basic info
+                return HubSpotPortalInfo(
+                    hubspot_portal_id=hub_id,
+                    name=f"HubSpot Portal {hub_id}",
+                    domain=None,
+                    timezone=None
+                )
+            except Exception as e:
+                # Fallback to basic info
+                return HubSpotPortalInfo(
+                    hubspot_portal_id=hub_id,
+                    name=f"HubSpot Portal {hub_id}",
+                    domain=None,
+                    timezone=None
+                )
+
     async def get_hubspot_company_info(
         self,
         access_token: str,
         hub_id: int
     ) -> Dict[str, Any]:
         """
-        Get company information from HubSpot.
+        Get company information from HubSpot (legacy method).
 
         Args:
             access_token: HubSpot access token
@@ -219,75 +276,73 @@ class AuthService:
                     "domain": ""
                 }
 
-    async def create_or_update_organization(
+    async def create_or_update_hubspot_portal(
         self,
-        company_info: Dict[str, Any],
+        portal_info: HubSpotPortalInfo,
         db: AsyncSession
-    ) -> Organization:
+    ) -> HubSpotPortal:
         """
-        Create or update an organization from HubSpot company data.
+        Create or update a HubSpot portal.
 
         Args:
-            company_info: Company information from HubSpot
+            portal_info: Portal information from HubSpot
             db: Database session
 
         Returns:
-            Organization object
+            HubSpotPortal object
         """
-        hubspot_company_id = company_info["company_id"]
-
-        # Check if organization exists
+        # Check if portal exists
         result = await db.execute(
-            select(Organization).where(
-                Organization.hubspot_company_id == hubspot_company_id
+            select(HubSpotPortal).where(
+                HubSpotPortal.hubspot_portal_id == portal_info.hubspot_portal_id
             )
         )
-        organization = result.scalar_one_or_none()
+        portal = result.scalar_one_or_none()
 
-        if organization:
-            # Update existing organization
-            organization.name = company_info.get("name", organization.name)
-            organization.domain = company_info.get("domain", organization.domain)
-            organization.updated_at = datetime.utcnow()
+        if portal:
+            # Update existing portal
+            portal.name = portal_info.name
+            portal.domain = portal_info.domain
+            portal.timezone = portal_info.timezone
+            portal.updated_at = datetime.utcnow()
         else:
-            # Create new organization
-            organization = Organization(
-                hubspot_company_id=hubspot_company_id,
-                name=company_info.get("name", f"HubSpot Account {hubspot_company_id}"),
-                domain=company_info.get("domain", ""),
-                plan_type="free",  # Default plan
-                max_searches_per_month=10,  # Default limit
-                is_active=True
+            # Create new portal
+            portal = HubSpotPortal(
+                hubspot_portal_id=portal_info.hubspot_portal_id,
+                name=portal_info.name,
+                domain=portal_info.domain,
+                timezone=portal_info.timezone,
+                settings={}
             )
-            db.add(organization)
+            db.add(portal)
 
         await db.flush()
-        return organization
+        return portal
 
     async def determine_user_role(
         self,
         hubspot_user_id: str,
-        organization: Organization,
+        hubspot_portal: HubSpotPortal,
         db: AsyncSession
     ) -> UserRole:
         """
-        Determine user role based on organization.
+        Determine user role based on portal.
 
         Rules:
-        - First user in organization = ADMIN
+        - First user in portal = ADMIN
         - All other users = MEMBER
 
         Args:
             hubspot_user_id: HubSpot user ID
-            organization: Organization object
+            hubspot_portal: HubSpot portal object
             db: Database session
 
         Returns:
             UserRole enum
         """
-        # Count existing users in organization
+        # Count existing users in portal
         result = await db.execute(
-            select(User).where(User.organization_id == organization.id)
+            select(User).where(User.hubspot_portal_id == hubspot_portal.id)
         )
         existing_users = result.scalars().all()
 
@@ -306,7 +361,7 @@ class AuthService:
     async def create_or_update_user(
         self,
         user_info: HubSpotUserInfo,
-        organization: Organization,
+        hubspot_portal: HubSpotPortal,
         db: AsyncSession
     ) -> User:
         """
@@ -314,7 +369,7 @@ class AuthService:
 
         Args:
             user_info: User information from HubSpot
-            organization: Organization the user belongs to
+            hubspot_portal: HubSpot portal the user belongs to
             db: Database session
 
         Returns:
@@ -329,14 +384,14 @@ class AuthService:
         # Determine role
         role = await self.determine_user_role(
             user_info.user_id,
-            organization,
+            hubspot_portal,
             db
         )
 
         if user:
             # Update existing user
             user.email = user_info.email
-            user.organization_id = organization.id
+            user.hubspot_portal_id = hubspot_portal.id
             user.last_login_at = datetime.utcnow()
             user.updated_at = datetime.utcnow()
             # Keep existing role if user already exists
@@ -345,7 +400,7 @@ class AuthService:
             user = User(
                 hubspot_user_id=user_info.user_id,
                 email=user_info.email,
-                organization_id=organization.id,
+                hubspot_portal_id=hubspot_portal.id,
                 role=role,
                 is_active=True,
                 last_login_at=datetime.utcnow()

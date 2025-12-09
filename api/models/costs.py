@@ -36,9 +36,9 @@ class ExtractionCostDetail(BaseModel):
 
 
 class OrganizationCostStats(BaseModel):
-    """Cost statistics for an organization."""
+    """Cost statistics for an organization (portal)."""
 
-    organization_id: str = Field(..., description="Organization ID")
+    portal_id: str = Field(..., description="HubSpot Portal ID", serialization_alias="organization_id")
     total_searches: int = Field(..., description="Total number of searches")
     completed_searches: int = Field(..., description="Number of completed searches")
     total_cost_eur: float = Field(..., description="Total cost in EUR")
@@ -47,6 +47,8 @@ class OrganizationCostStats(BaseModel):
     average_cost_per_search_eur: float = Field(..., description="Average cost per search in EUR")
     start_date: Optional[str] = Field(None, description="Start date of the period")
     end_date: Optional[str] = Field(None, description="End date of the period")
+    
+    model_config = {"populate_by_name": True}  # Permet d'utiliser portal_id ou organization_id lors de la désérialisation
 
 
 class MonthlyCostStats(OrganizationCostStats):
@@ -113,3 +115,49 @@ class CostDistributionByModel(BaseModel):
     total_tokens: int = Field(..., description="Total tokens used")
     usage_count: int = Field(..., description="Number of times used")
     percentage: float = Field(..., description="Percentage of total cost")
+
+
+class ExtractionListItem(BaseModel):
+    """Lightweight model for extraction list (without full extraction_data)."""
+
+    id: str = Field(..., description="Extraction ID")
+    session_id: str = Field(..., description="Session ID")
+    company_name: str = Field(..., description="Company name")
+    company_url: Optional[str] = Field(None, description="Company URL")
+    extraction_type: str = Field(..., description="Type of extraction (name/url)")
+    status: str = Field(..., description="Extraction status")
+    created_at: datetime = Field(..., description="Creation date")
+    completed_at: Optional[datetime] = Field(None, description="Completion date")
+    cost_eur: Optional[float] = Field(None, description="Cost in EUR")
+    cost_usd: Optional[float] = Field(None, description="Cost in USD")
+    total_tokens: Optional[int] = Field(None, description="Total tokens")
+    subsidiaries_count: int = Field(0, description="Number of subsidiaries")
+    processing_time: Optional[float] = Field(None, description="Processing time in seconds")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+
+    class Config:
+        from_attributes = True
+
+
+class ExtractionListResponse(BaseModel):
+    """Paginated response for extraction list."""
+
+    items: List[ExtractionListItem] = Field(..., description="List of extractions")
+    total: int = Field(..., description="Total number of extractions")
+    page: int = Field(..., description="Current page (1-indexed)")
+    page_size: int = Field(..., description="Page size")
+    total_pages: int = Field(..., description="Total number of pages")
+
+
+class DashboardStats(BaseModel):
+    """Consolidated dashboard statistics."""
+
+    # Current month stats
+    current_month: MonthlyCostStats = Field(..., description="Current month statistics")
+
+    # Recent searches (last 5)
+    recent_searches: List[ExtractionListItem] = Field(..., description="Recent extractions")
+
+    # Quick stats
+    total_searches_all_time: int = Field(..., description="Total searches all time")
+    success_rate: float = Field(..., description="Success rate (0-1)")

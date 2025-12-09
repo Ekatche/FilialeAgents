@@ -211,7 +211,7 @@ export function CompanyDashboard({ initialData }: CompanyDashboardProps) {
             {/* Loading State */}
             {isLoading && (
               <motion.div variants={itemVariants}>
-                <LoadingState message="Analyse en cours... Cela peut prendre quelques secondes." />
+                <LoadingState message="Analyse en cours... Cela peut prendre quelques minutes." />
               </motion.div>
             )}
 

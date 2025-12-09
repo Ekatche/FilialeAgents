@@ -9,12 +9,16 @@ from sqlalchemy.pool import NullPool
 
 from core.config import settings
 
-# Create async engine
+# Create async engine with Supabase-optimized pool settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
-    pool_pre_ping=True,
+    pool_pre_ping=True,  # Test connections before using them
+    pool_size=settings.DB_POOL_SIZE,  # Number of persistent connections
+    max_overflow=settings.DB_MAX_OVERFLOW,  # Additional connections in peak times
+    pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout to get a connection
+    pool_recycle=settings.DB_POOL_RECYCLE,  # Recycle connections after 1 hour
     poolclass=NullPool if "sqlite" in settings.DATABASE_URL else None,
 )
 
@@ -61,7 +65,9 @@ async def init_db() -> None:
         from models import db_models  # noqa: F401
 
         # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
+        # Disabled to prevent conflicts with Alembic migrations (DuplicateObjectError on Enums)
+        # Schema management should be done via Alembic
+        # await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

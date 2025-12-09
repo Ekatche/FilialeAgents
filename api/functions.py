@@ -5,7 +5,6 @@ Fonctions utilitaires pour l'extraction d'informations d'entreprise
 import logging
 from datetime import datetime
 from typing import Optional
-from company_agents.models import CompanyInfo
 from core.models import CompanyExtractionResponse
 
 
@@ -63,14 +62,14 @@ def format_response_for_api(
     Formate la réponse pour l'API
 
     Args:
-        company_info: Objet CompanyInfo ou dictionnaire de résultat
+        company_info: Dictionnaire de résultat ou objet avec attributs
         processing_time: Temps de traitement en secondes
         session_id: ID de session pour le suivi en temps réel
 
     Returns:
         CompanyExtractionResponse: Réponse formatée
     """
-    # Si c'est un objet CompanyInfo, accéder aux attributs directement
+    # Si c'est un objet avec attributs, accéder aux attributs directement
     if hasattr(company_info, "company_name"):
         return CompanyExtractionResponse(
             company_name=getattr(company_info, "company_name", ""),

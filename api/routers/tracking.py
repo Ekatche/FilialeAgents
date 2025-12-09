@@ -7,16 +7,62 @@ from typing import Dict, Any, Optional
 import logging
 
 from services.agent_tracking_service import agent_tracking_service
-from company_agents.extraction_manager import (
-    get_all_tools_names,
-    get_agent_info,
-    get_extraction_steps,
-    get_sub_agents_info,
-)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
+
+
+def get_all_tools_names() -> list:
+    """Récupère la liste de tous les outils disponibles dans le workflow hiérarchique"""
+    return [
+        "contact_finder",
+        "financial_data_finder",
+        "headquarters_finder",
+        "minimal_subsidiary_search",
+    ]
+
+
+def get_agent_info() -> Dict[str, Any]:
+    """Récupère les informations sur les agents du workflow hiérarchique"""
+    return {
+        "name": "Workflow Hiérarchique",
+        "description": "Architecture en 4 phases : Éclaireur, Enrichisseur, Cartographe, Extracteur",
+        "version": "2.0",
+    }
+
+
+def get_extraction_steps() -> list:
+    """Récupère les étapes d'extraction du workflow hiérarchique"""
+    return [
+        "Phase 0 : Éclaireur (identification société mère)",
+        "Phase 0.5 : Enrichisseur Société Mère (enrichissement informations générales)",
+        "Phase 1 : Cartographe Minimal (identification entités)",
+        "Phase 2 : Extracteur Détaillé (extraction parallèle)",
+    ]
+
+
+def get_sub_agents_info() -> list:
+    """Récupère les informations sur les sous-agents du workflow hiérarchique"""
+    return [
+        {
+            "name": "🔍 Éclaireur",
+            "purpose": "Identifier la société mère et le secteur",
+        },
+        {
+            "name": "📊 Enrichisseur",
+            "purpose": "Enrichir les informations générales (CA, effectifs, adresse)",
+        },
+        {
+            "name": "🗺️ Cartographe ",
+            "purpose": "Identifier les entités liées (filiales, participations)",
+        },
+        {
+            "name": "🔬 Extracteur ",
+
+            "purpose": "Extraire les informations détaillées de chaque entité",
+        },
+    ]
 
 
 @router.get("/agent-info")

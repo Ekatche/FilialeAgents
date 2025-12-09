@@ -2,13 +2,15 @@
 Routers pour l'API d'extraction d'entreprise
 """
 
-from . import health, extraction, websocket, tracking, auth, costs
+from . import health, extractions, extractions_public, websocket, tracking, auth, auth_local, costs
 
 __all__ = [
     "health",
-    "extraction", 
+    "extractions",
+    "extractions_public",
     "websocket",
     "tracking",
     "auth",
+    "auth_local",
     "costs",
 ]

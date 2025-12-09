@@ -5,8 +5,7 @@ const nextConfig = {
     unoptimized: true,
   },
   
-  // Configuration des métadonnées
-  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8012'),
+  outputFileTracingRoot: __dirname,
 
   async rewrites() {
     return [
